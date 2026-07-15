@@ -1,0 +1,15 @@
+services:
+  api:
+    build:
+      target: development
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      DOTNET_USE_POLLING_FILE_WATCHER: "true"
+    develop:
+      watch:
+        - action: sync
+          path: ./src
+          target: /src/src
+          ignore:
+            - "**/bin/"
+            - "**/obj/"

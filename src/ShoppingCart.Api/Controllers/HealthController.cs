@@ -10,7 +10,7 @@ namespace ShoppingCart.Api.Controllers
         [HttpGet]
         public IActionResult Get()
         {
-            return Ok(new { status = "Healthy", message = "Service is running smoothly." });
+            return Ok(new { status = "Healthy", message = "Service is running" });
         }
     }
 }
