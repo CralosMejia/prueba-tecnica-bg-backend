@@ -10,13 +10,12 @@ public class Cart
         _items.Add((UnitPrice: unitPrice, Quantity: quantity));
     }
 
-    public bool ValidateQuantity(int quantity)
+    public void ValidateQuantity(int quantity)
     {
         if (quantity <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(quantity), "Quantity must be positive.");
         }
-        return true;
     }
 
     public CartTotals CalculateTotals()
