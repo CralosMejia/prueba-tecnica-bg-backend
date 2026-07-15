@@ -1,6 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+
+
 using ShoppingCart.Infrastructure.Persistence;
+using ShoppingCart.Application.Products;
+using ShoppingCart.Infrastructure.Products;
 
 namespace ShoppingCart.Infrastructure.Persistence;
 
@@ -27,6 +31,8 @@ public static class DependencyInjection
                 }
             );
         });
+
+        services.AddScoped<IProductRepository, ProductRepository>();
 
         return services;
     }

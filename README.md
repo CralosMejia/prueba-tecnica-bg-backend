@@ -395,6 +395,48 @@ dotnet test ShoppingCart.sln
 
 
 ## Estado
+## Productos
 
-Proyecto en configuración inicial.
-"@ | Set-Content README.md
+El módulo de productos permite consultar los productos almacenados y realizar búsquedas por nombre, código o categoría.
+
+### Listar productos
+
+```http
+GET /api/products
+```
+
+Si no existen productos, devuelve una lista vacía con estado `200`.
+
+### Buscar productos
+
+```http
+GET /api/products?search=keyboard
+```
+
+El parámetro `search` compara el texto ingresado con el nombre, código y categoría del producto.
+
+### Consultar un producto
+
+```http
+GET /api/products/{id}
+```
+
+Si el producto no existe, la API devuelve `404`.
+
+La base de datos contiene productos semilla para poder probar estos endpoints después de aplicar las migraciones.
+
+## Manejo de errores
+
+La API utiliza un manejador global de excepciones para evitar repetir bloques `try/catch` dentro de cada controller.
+
+Los errores se devuelven usando el formato `ProblemDetails` e incluyen un `traceId` que permite relacionar la respuesta con los logs de la aplicación.
+
+Los códigos principales utilizados son:
+
+- `400`: datos o argumentos inválidos.
+- `404`: recurso no encontrado.
+- `409`: conflicto con una regla de negocio.
+- `500`: error interno no controlado.
+- `503`: la base de datos no se encuentra disponible.
+
+Los detalles técnicos y stack traces se registran en los logs, pero no se exponen en las respuestas HTTP.

@@ -1,4 +1,6 @@
 using ShoppingCart.Infrastructure.Persistence;
+using ShoppingCart.Application.Products;
+using ShoppingCart.Api.Errors;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -16,7 +18,13 @@ var connectionString = builder.Configuration
         "Connection string 'DefaultConnection' was not found."
     );
 
+//Injeccion de dependencias
 builder.Services.AddInfrastructure(connectionString);
+builder.Services.AddScoped<IProductService, ProductService>();
+
+//Errores centralizados
+builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 
 var app = builder.Build();
 
@@ -27,6 +35,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseExceptionHandler();
 app.UseHttpsRedirection();
 
 app.UseAuthorization();
