@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using ShoppingCart.Application.Products;
 using ShoppingCart.Application.Authentication;
+using ShoppingCart.Application.Carts;
 
 namespace ShoppingCart.Application;
 
@@ -19,6 +20,11 @@ public static class DependencyInjection
         services.AddScoped<
             IAuthService,
             AuthService
+        >();
+
+        services.AddScoped<
+            ICartService,
+            CartService
         >();
 
         return services;

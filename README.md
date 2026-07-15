@@ -724,3 +724,262 @@ Una petición sin token o con un token inválido devuelve:
 - El JWT contiene el identificador, correo y rol del usuario.
 - Los tokens tienen un tiempo de expiración configurable.
 - La validación verifica firma, issuer, audience y expiración.
+
+
+## Carrito de compras
+
+La API implementa un carrito de compras persistente para cada usuario autenticado.
+
+Cada carrito pertenece a un único usuario y sus operaciones se realizan utilizando el identificador almacenado en el JWT. El cliente no envía el `UserId` en la ruta ni en el cuerpo de la petición.
+
+### Flujo de identificación del usuario
+
+```text
+JWT
+  ↓
+ClaimTypes.NameIdentifier
+  ↓
+CartController
+  ↓
+CartService
+  ↓
+CartRepository
+  ↓
+Carrito perteneciente al usuario autenticado
+```
+
+Esto evita que un usuario pueda consultar o modificar el carrito de otra persona.
+
+### Modelo relacional
+
+El carrito utiliza las siguientes relaciones:
+
+```text
+User 1 ─── 1 Cart
+Cart 1 ─── N CartItem
+Product 1 ─── N CartItem
+```
+
+Tablas involucradas:
+
+```text
+users
+products
+carts
+cart_items
+```
+
+La tabla `carts` contiene una restricción única sobre `UserId`, garantizando que cada usuario tenga como máximo un carrito activo.
+
+La tabla `cart_items` utiliza una clave compuesta:
+
+```text
+CartId + ProductId
+```
+
+Esto impide que el mismo producto se almacene varias veces dentro del mismo carrito. Cuando se vuelve a agregar un producto existente, se incrementa su cantidad.
+
+### Reglas de negocio
+
+El carrito implementa las siguientes reglas:
+
+- Las cantidades deben ser mayores que cero.
+- El producto debe existir.
+- La cantidad solicitada no puede superar el stock disponible.
+- Al agregar nuevamente un producto, se valida la cantidad acumulada.
+- Al actualizar un producto, la nueva cantidad reemplaza a la anterior.
+- Un usuario solo puede acceder a su propio carrito.
+- El subtotal por producto se calcula multiplicando el precio actual por la cantidad.
+- El subtotal general corresponde a la suma de todos los productos.
+- Se aplica un descuento del 10 % cuando el subtotal es estrictamente mayor que `$100`.
+- Cuando el subtotal es exactamente `$100`, no se aplica descuento.
+
+### Manejo del stock
+
+Agregar un producto al carrito no disminuye el stock.
+
+```text
+Agregar al carrito
+→ validar stock disponible
+→ guardar CartItem
+→ no modificar Product.Stock
+```
+
+Eliminar un producto o vaciar el carrito tampoco aumenta el stock, porque las unidades nunca fueron reservadas.
+
+El stock se modificará únicamente durante el checkout:
+
+```text
+Confirmar compra
+→ validar nuevamente el stock
+→ crear la orden
+→ disminuir el stock
+→ vaciar el carrito
+→ confirmar la transacción
+```
+
+La validación se realiza nuevamente durante el checkout porque otro usuario podría comprar las unidades disponibles antes de que se confirme la compra.
+
+### Respuesta del carrito
+
+Ejemplo:
+
+```json
+{
+  "items": [
+    {
+      "productId": "11111111-1111-1111-1111-111111111111",
+      "code": "PROD-001",
+      "name": "Mechanical Keyboard",
+      "unitPrice": 50,
+      "quantity": 3,
+      "subtotal": 150
+    }
+  ],
+  "subtotal": 150,
+  "discount": 15,
+  "total": 135
+}
+```
+
+El precio no se almacena dentro de `cart_items`. Para construir la respuesta, la API consulta el precio actual desde la tabla `products`.
+
+Los precios históricos se almacenarán posteriormente en los detalles de las órdenes.
+
+### Obtener el carrito
+
+```http
+GET /api/cart
+```
+
+Una respuesta para un carrito vacío es:
+
+```json
+{
+  "items": [],
+  "subtotal": 0,
+  "discount": 0,
+  "total": 0
+}
+```
+
+Código esperado:
+
+```text
+200 OK
+```
+
+### Agregar un producto
+
+```http
+POST /api/cart/items
+```
+
+Request:
+
+```json
+{
+  "productId": "11111111-1111-1111-1111-111111111111",
+  "quantity": 2
+}
+```
+
+Código esperado:
+
+```text
+201 Created
+```
+
+Si el producto ya está en el carrito, la cantidad enviada se suma a la cantidad existente.
+
+### Actualizar una cantidad
+
+```http
+PUT /api/cart/items/{productId}
+```
+
+Request:
+
+```json
+{
+  "quantity": 4
+}
+```
+
+La cantidad enviada reemplaza a la cantidad anterior.
+
+Código esperado:
+
+```text
+200 OK
+```
+
+### Eliminar un producto
+
+```http
+DELETE /api/cart/items/{productId}
+```
+
+Código esperado:
+
+```text
+200 OK
+```
+
+### Vaciar el carrito
+
+```http
+DELETE /api/cart
+```
+
+La operación elimina todos los ítems, pero conserva el carrito principal asociado al usuario.
+
+Código esperado:
+
+```text
+200 OK
+```
+
+### Códigos HTTP
+
+| Código | Descripción |
+|---|---|
+| `200 OK` | Consulta, actualización, eliminación o vaciado exitoso. |
+| `201 Created` | Producto agregado correctamente al carrito. |
+| `400 Bad Request` | Cantidad, identificador o request inválido. |
+| `401 Unauthorized` | Token ausente, inválido o expirado. |
+| `404 Not Found` | Producto, carrito o ítem inexistente. |
+| `409 Conflict` | La cantidad solicitada supera el stock disponible. |
+| `500 Internal Server Error` | Error inesperado. |
+| `503 Service Unavailable` | La base de datos no está disponible. |
+
+### Autenticación
+
+Todos los endpoints del carrito requieren JWT:
+
+```csharp
+[Authorize]
+```
+
+Para probarlos desde Swagger:
+
+1. Ejecutar `POST /api/auth/login`.
+2. Copiar el valor de `accessToken`.
+3. Pulsar **Authorize**.
+4. Pegar únicamente el token.
+5. Ejecutar los endpoints del carrito.
+
+### Pruebas
+
+Ejecutar las pruebas relacionadas con el carrito:
+
+```powershell
+dotnet test tests/ShoppingCart.UnitTests/ShoppingCart.UnitTests.csproj `
+  --filter "FullyQualifiedName~CartTests|FullyQualifiedName~CartServiceTests|FullyQualifiedName~CartControllerTests"
+```
+
+Ejecutar todas las pruebas:
+
+```powershell
+dotnet test ShoppingCart.sln
+```

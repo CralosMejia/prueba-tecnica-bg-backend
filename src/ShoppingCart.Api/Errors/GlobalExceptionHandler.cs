@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore.Storage;
 using MySqlConnector;
+using ShoppingCart.Application.Common.Exceptions;
 
 namespace ShoppingCart.Api.Errors;
 
@@ -14,12 +15,6 @@ public sealed class GlobalExceptionHandler(
         Exception exception,
         CancellationToken cancellationToken)
     {
-        logger.LogError(
-            exception,
-            "Unhandled exception. TraceId: {TraceId}",
-            httpContext.TraceIdentifier
-        );
-
         var error = MapException(exception);
 
         if (error.StatusCode >= StatusCodes.Status500InternalServerError)
@@ -34,9 +29,9 @@ public sealed class GlobalExceptionHandler(
         else
         {
             logger.LogWarning(
-                "Request rejected with status {StatusCode}. Message: {Message}. TraceId: {TraceId}",
+                exception,
+                "Request rejected with status {StatusCode}. TraceId: {TraceId}",
                 error.StatusCode,
-                exception.Message,
                 httpContext.TraceIdentifier
             );
         }
@@ -64,15 +59,23 @@ public sealed class GlobalExceptionHandler(
         return true;
     }
 
-    private static ErrorDescriptor MapException(Exception exception)
+    private static ErrorDescriptor MapException(
+        Exception exception)
     {
         return exception switch
         {
-            ArgumentException argumentException =>
+            UnauthorizedAccessException unauthorizedException =>
                 new ErrorDescriptor(
-                    StatusCodes.Status400BadRequest,
-                    "Invalid request",
-                    argumentException.Message
+                    StatusCodes.Status401Unauthorized,
+                    "Unauthorized",
+                    unauthorizedException.Message
+                ),
+
+            ResourceNotFoundException notFoundException =>
+                new ErrorDescriptor(
+                    StatusCodes.Status404NotFound,
+                    "Resource not found",
+                    notFoundException.Message
                 ),
 
             KeyNotFoundException notFoundException =>
@@ -82,12 +85,19 @@ public sealed class GlobalExceptionHandler(
                     notFoundException.Message
                 ),
 
-            // InvalidOperationException conflictException =>
-            //     new ErrorDescriptor(
-            //         StatusCodes.Status409Conflict,
-            //         "Business rule conflict",
-            //         conflictException.Message
-            //     ),
+            BusinessConflictException conflictException =>
+                new ErrorDescriptor(
+                    StatusCodes.Status409Conflict,
+                    "Business rule conflict",
+                    conflictException.Message
+                ),
+
+            ArgumentException argumentException =>
+                new ErrorDescriptor(
+                    StatusCodes.Status400BadRequest,
+                    "Invalid request",
+                    argumentException.Message
+                ),
 
             RetryLimitExceededException or MySqlException =>
                 new ErrorDescriptor(

@@ -1,0 +1,15 @@
+using System.ComponentModel.DataAnnotations;
+
+namespace ShoppingCart.Application.Carts;
+
+public sealed record AddCartItemRequest(
+    [Required]
+    Guid ProductId,
+
+    [Range(
+        1,
+        int.MaxValue,
+        ErrorMessage = "Quantity must be greater than zero."
+    )]
+    int Quantity
+);
