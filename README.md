@@ -189,7 +189,149 @@ Los datos de MySQL se mantienen almacenados en el volumen de Docker.
 
 No se debe utilizar `down -v` a menos que se quiera eliminar también la base de datos y sus datos.
 
+## Entity Framework Core y migraciones
 
+El proyecto utiliza Entity Framework Core junto con Pomelo para realizar la conexión y persistencia de datos en MySQL.
+
+El contexto principal de la base de datos se encuentra en:
+
+```text
+src/ShoppingCart.Infrastructure/Persistence/ShoppingCartDbContext.cs
+```
+
+Las configuraciones de las entidades se encuentran en:
+
+```text
+src/ShoppingCart.Infrastructure/Persistence/Configurations
+```
+
+Las migraciones generadas se almacenan en:
+
+```text
+src/ShoppingCart.Infrastructure/Persistence/Migrations
+```
+
+### Restaurar la herramienta de Entity Framework
+
+El proyecto utiliza `dotnet-ef` como una herramienta local. Después de clonar el repositorio se debe ejecutar:
+
+```bash
+dotnet tool restore
+```
+
+Para verificar que la herramienta se encuentra disponible:
+
+```bash
+dotnet tool run dotnet-ef --version
+```
+
+### Configurar User Secrets
+
+Cuando Entity Framework se ejecuta desde la máquina local, necesita una cadena de conexión para comunicarse con MySQL.
+
+Para evitar guardar contraseñas dentro de `appsettings.json`, se utiliza User Secrets durante el desarrollo local.
+
+Primero se debe inicializar User Secrets en el proyecto de la API:
+
+```bash
+dotnet user-secrets init --project src/ShoppingCart.Api
+```
+
+Este comando solo se debe ejecutar una vez por proyecto.
+
+Después se debe guardar la cadena de conexión local:
+
+```bash
+dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Server=localhost;Port=3309;Database=shopping_cart_db;User=shopping_cart_user;Password=YOUR_LOCAL_PASSWORD;" --project src/ShoppingCart.Api
+```
+
+Se debe reemplazar `YOUR_LOCAL_PASSWORD` por la misma contraseña configurada en la variable `MYSQL_PASSWORD` del archivo `.env`.
+
+Para revisar los secretos configurados:
+
+```bash
+dotnet user-secrets list --project src/ShoppingCart.Api
+```
+
+Los User Secrets se almacenan fuera del repositorio, por lo que cada desarrollador debe configurar su propia cadena de conexión después de clonar el proyecto.
+
+La contraseña real no debe guardarse en el README, en `.env.example` ni dentro de los archivos `appsettings`.
+
+### Cadenas de conexión
+
+Cuando la API o Entity Framework se ejecutan directamente desde Windows, la conexión utiliza el puerto publicado por Docker:
+
+```text
+Server: localhost
+Port: 3309
+```
+
+Cuando la API se ejecuta dentro de Docker, se conecta usando el nombre del servicio y el puerto interno de MySQL:
+
+```text
+Server: mysql
+Port: 3306
+```
+
+Docker Compose obtiene las credenciales desde el archivo `.env`.
+
+### Iniciar MySQL
+
+Antes de crear o aplicar migraciones, se debe iniciar la base de datos:
+
+```bash
+docker compose up -d mysql
+```
+
+Para revisar su estado:
+
+```bash
+docker compose ps
+```
+
+El contenedor debe aparecer con estado `healthy`.
+
+### Crear una migración
+
+Para crear una nueva migración se debe ejecutar:
+
+```bash
+dotnet tool run dotnet-ef migrations add MigrationName --project src/ShoppingCart.Infrastructure --startup-project src/ShoppingCart.Api --output-dir Persistence/Migrations
+```
+
+Se debe reemplazar `MigrationName` por un nombre que describa el cambio realizado.
+
+Ejemplo:
+
+```bash
+dotnet tool run dotnet-ef migrations add InitialCreate --project src/ShoppingCart.Infrastructure --startup-project src/ShoppingCart.Api --output-dir Persistence/Migrations
+```
+
+### Aplicar las migraciones
+
+Para aplicar las migraciones pendientes en MySQL:
+
+```bash
+dotnet tool run dotnet-ef database update --project src/ShoppingCart.Infrastructure --startup-project src/ShoppingCart.Api
+```
+
+### Eliminar la última migración
+
+Si una migración todavía no fue aplicada y se necesita corregir el modelo:
+
+```bash
+dotnet tool run dotnet-ef migrations remove --project src/ShoppingCart.Infrastructure --startup-project src/ShoppingCart.Api
+```
+
+Después de corregir el modelo o su configuración, se puede volver a generar la migración.
+
+### Ver migraciones disponibles
+
+```bash
+dotnet tool run dotnet-ef migrations list --project src/ShoppingCart.Infrastructure --startup-project src/ShoppingCart.Api
+```
+
+Las migraciones forman parte del código fuente y deben mantenerse dentro del repositorio para permitir que otros desarrolladores creen la misma estructura de base de datos.
 
 ## Pruebas
 
