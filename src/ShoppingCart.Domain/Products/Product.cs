@@ -11,7 +11,7 @@ public class Product
 
     public Product(string code, string name, string category, decimal price, int stock)
     {
-        Validate(price, stock);
+        ValidateCreateProduct(price, stock);
         Id = Guid.NewGuid();
         Code = code;
         Name = name;
@@ -20,7 +20,7 @@ public class Product
         Stock = stock;
     }
 
-    private void Validate(decimal price, int stock)
+    private void ValidateCreateProduct(decimal price, int stock)
     {
 
         if (price < 0)
@@ -32,5 +32,20 @@ public class Product
         {
             throw new ArgumentOutOfRangeException(nameof(stock), "Stock must be positive.");
         }
+    }
+
+    public void DecreaseStock(int quantity)
+    {
+        if (quantity <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(quantity), "Quantity must be positive.");
+        }
+
+        if (Stock < quantity)
+        {
+            throw new InvalidOperationException("Insufficient stock.");
+        }
+
+        Stock -= quantity;
     }
 }
