@@ -82,12 +82,12 @@ public sealed class GlobalExceptionHandler(
                     notFoundException.Message
                 ),
 
-            InvalidOperationException conflictException =>
-                new ErrorDescriptor(
-                    StatusCodes.Status409Conflict,
-                    "Business rule conflict",
-                    conflictException.Message
-                ),
+            // InvalidOperationException conflictException =>
+            //     new ErrorDescriptor(
+            //         StatusCodes.Status409Conflict,
+            //         "Business rule conflict",
+            //         conflictException.Message
+            //     ),
 
             RetryLimitExceededException or MySqlException =>
                 new ErrorDescriptor(

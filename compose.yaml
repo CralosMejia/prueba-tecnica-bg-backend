@@ -33,6 +33,10 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__DefaultConnection: Server=mysql;Port=3306;Database=${MYSQL_DATABASE};User=${MYSQL_USER};Password=${MYSQL_PASSWORD};
+      Jwt__Issuer: ${JWT_ISSUER}
+      Jwt__Audience: ${JWT_AUDIENCE}
+      Jwt__ExpirationMinutes: ${JWT_EXPIRATION_MINUTES}
+      Jwt__Key: ${JWT_KEY}
     ports:
       - "${API_PORT}:8080"
     depends_on:

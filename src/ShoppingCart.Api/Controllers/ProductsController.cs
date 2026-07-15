@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using ShoppingCart.Application.Products;
 
 namespace ShoppingCart.Api.Controllers;
 
+[Authorize]
 [ApiController]
 [Route("api/products")]
 public class ProductsController : ControllerBase

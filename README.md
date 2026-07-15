@@ -465,3 +465,262 @@ Los códigos principales utilizados son:
 - `503`: la base de datos no se encuentra disponible.
 
 Los detalles técnicos y stack traces se registran en los logs, pero no se exponen en las respuestas HTTP.
+
+## Autenticación, usuarios y autorización
+
+La API implementa autenticación mediante JSON Web Token (JWT).
+
+Los usuarios se almacenan en MySQL y sus contraseñas no se guardan en texto plano. La base de datos conserva únicamente un hash generado mediante `PasswordHasher`.
+
+La autenticación sigue el siguiente flujo:
+
+```text
+POST /api/auth/login
+        ↓
+AuthController
+        ↓
+AuthService
+        ↓
+UserRepository
+        ↓
+MySQL
+        ↓
+Verificación de contraseña
+        ↓
+Generación del token JWT
+```
+
+### Roles disponibles
+
+Actualmente se manejan dos roles almacenados como texto:
+
+- `Customer`: usuario normal de la aplicación.
+- `Admin`: usuario preparado para funcionalidades administrativas opcionales.
+
+El rol se incluye dentro del JWT como un claim. Esto permitirá proteger endpoints administrativos utilizando:
+
+```csharp
+[Authorize(Roles = UserRoles.Admin)]
+```
+
+Los endpoints de consulta de productos están disponibles para cualquier usuario autenticado.
+
+### Usuarios semilla
+
+La migración de Entity Framework crea los siguientes usuarios de desarrollo:
+
+| Rol | Correo | Contraseña |
+|---|---|---|
+| Customer | `customer@shoppingcart.com` | `Customer123!` |
+| Admin | `admin@shoppingcart.com` | `Admin123!` |
+
+Estas credenciales son únicamente para desarrollo y evaluación técnica.
+
+Las contraseñas no se almacenan directamente en la base de datos. `UserConfiguration` contiene hashes previamente generados y fijos para evitar cambios innecesarios entre migraciones.
+
+### Configuración JWT
+
+La configuración pública del token se encuentra en `appsettings.json`:
+
+```json
+{
+  "Jwt": {
+    "Issuer": "ShoppingCart.Api",
+    "Audience": "ShoppingCart.Client",
+    "ExpirationMinutes": 60
+  }
+}
+```
+
+La clave privada utilizada para firmar los tokens no se almacena en Git.
+
+### Generar una clave JWT
+
+Desde PowerShell:
+
+```powershell
+$bytes = New-Object byte[] 64
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+$rng.GetBytes($bytes)
+$rng.Dispose()
+
+$jwtKey = [Convert]::ToBase64String($bytes)
+$jwtKey
+```
+
+El comando genera una clave aleatoria codificada en Base64.
+
+No se debe compartir ni agregar esta clave al repositorio.
+
+### Guardar la clave para ejecución local
+
+La API utiliza User Secrets durante la ejecución local.
+
+Inicializar User Secrets, en caso de que todavía no estén configurados:
+
+```powershell
+dotnet user-secrets init `
+  --project src/ShoppingCart.Api
+```
+
+Guardar la clave:
+
+```powershell
+dotnet user-secrets set "Jwt:Key" $jwtKey `
+  --project src/ShoppingCart.Api
+```
+
+Verificar las configuraciones guardadas:
+
+```powershell
+dotnet user-secrets list `
+  --project src/ShoppingCart.Api
+```
+
+También debe existir una cadena de conexión local:
+
+```powershell
+dotnet user-secrets set `
+  "ConnectionStrings:DefaultConnection" `
+  "Server=localhost;Port=3309;Database=shopping_cart_db;User=shopping_cart_user;Password=YOUR_PASSWORD;" `
+  --project src/ShoppingCart.Api
+```
+
+### Configuración JWT para Docker
+
+El archivo local `.env` debe contener:
+
+```env
+JWT_ISSUER=ShoppingCart.Api
+JWT_AUDIENCE=ShoppingCart.Client
+JWT_EXPIRATION_MINUTES=60
+JWT_KEY=YOUR_GENERATED_SECRET
+```
+
+El archivo `.env` no debe subirse al repositorio.
+
+El archivo `.env.example` contiene únicamente valores de referencia:
+
+```env
+JWT_ISSUER=ShoppingCart.Api
+JWT_AUDIENCE=ShoppingCart.Client
+JWT_EXPIRATION_MINUTES=60
+JWT_KEY=replace_with_a_secure_key
+```
+
+Docker Compose convierte estas variables a la estructura de configuración utilizada por ASP.NET Core:
+
+```yaml
+environment:
+  Jwt__Issuer: ${JWT_ISSUER}
+  Jwt__Audience: ${JWT_AUDIENCE}
+  Jwt__ExpirationMinutes: ${JWT_EXPIRATION_MINUTES}
+  Jwt__Key: ${JWT_KEY}
+```
+
+Los dobles guiones bajos representan secciones anidadas de configuración:
+
+```text
+Jwt__Key → Jwt:Key
+```
+
+### Ejecutar migraciones
+
+Crear una migración:
+
+```powershell
+dotnet ef migrations add AddUsers `
+  --project src/ShoppingCart.Infrastructure `
+  --startup-project src/ShoppingCart.Api `
+  --output-dir Persistence/Migrations
+```
+
+Aplicar las migraciones:
+
+```powershell
+dotnet ef database update `
+  --project src/ShoppingCart.Infrastructure `
+  --startup-project src/ShoppingCart.Api
+```
+
+La migración crea:
+
+- La tabla `users`.
+- Un índice único para el correo electrónico.
+- Un usuario `Customer`.
+- Un usuario `Admin`.
+- Los hashes de las contraseñas.
+
+### Endpoint de login
+
+```http
+POST /api/auth/login
+```
+
+Request:
+
+```json
+{
+  "email": "customer@shoppingcart.com",
+  "password": "Customer123!"
+}
+```
+
+Respuesta exitosa:
+
+```json
+{
+  "accessToken": "JWT_TOKEN",
+  "expiresAtUtc": "2026-07-16T12:00:00Z",
+  "email": "customer@shoppingcart.com",
+  "role": "Customer",
+  "tokenType": "Bearer"
+}
+```
+
+### Códigos HTTP del login
+
+| Código | Significado |
+|---|---|
+| `200 OK` | Credenciales válidas y token generado. |
+| `400 Bad Request` | Correo, contraseña o formato del request inválido. |
+| `401 Unauthorized` | Correo o contraseña incorrectos. |
+| `500 Internal Server Error` | Error interno no controlado. |
+| `503 Service Unavailable` | La base de datos no está disponible. |
+
+La API devuelve el mismo mensaje cuando el correo no existe o la contraseña es incorrecta. Esto evita revelar qué correos están registrados.
+
+### Usar JWT en Swagger
+
+1. Ejecutar `POST /api/auth/login`.
+2. Copiar únicamente el valor de `accessToken`.
+3. Pulsar el botón **Authorize**.
+4. Pegar el token.
+5. Confirmar la autorización.
+6. Ejecutar los endpoints protegidos.
+
+Con la configuración actual de Swagger no es necesario escribir manualmente la palabra `Bearer`.
+
+### Endpoints protegidos
+
+Los endpoints de productos requieren un usuario autenticado:
+
+```http
+GET /api/products
+GET /api/products/{id}
+```
+
+Una petición sin token o con un token inválido devuelve:
+
+```text
+401 Unauthorized
+```
+
+### Seguridad
+
+- La clave JWT no se almacena en Git.
+- Las contraseñas no se almacenan en texto plano.
+- Los tokens y contraseñas no se registran mediante HTTP logging.
+- El JWT contiene el identificador, correo y rol del usuario.
+- Los tokens tienen un tiempo de expiración configurable.
+- La validación verifica firma, issuer, audience y expiración.

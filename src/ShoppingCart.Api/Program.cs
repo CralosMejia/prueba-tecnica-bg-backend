@@ -1,14 +1,14 @@
 using Microsoft.AspNetCore.HttpLogging;
 using ShoppingCart.Api.Errors;
 using ShoppingCart.Application;
-using ShoppingCart.Infrastructure;
+using ShoppingCart.Infrastructure.Persistence;
+using ShoppingCart.Api.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Configuración principal de la API
 builder.Services.AddControllers();
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerDocumentation();
 
 // Configuración del manejo centralizado de errores
 builder.Services.AddProblemDetails();
@@ -37,7 +37,10 @@ var connectionString = builder.Configuration
     );
 
 // Registro de persistencia, repositorios y servicios de infraestructura
-builder.Services.AddInfrastructure(connectionString);
+builder.Services.AddInfrastructure(
+    connectionString,
+    builder.Configuration
+);
 
 var app = builder.Build();
 
@@ -64,5 +67,11 @@ if (app.Environment.IsDevelopment())
 
 // Registra los endpoints definidos mediante controllers
 app.MapControllers();
+
+// Obtiene y valida la identidad enviada mediante el token JWT
+app.UseAuthentication();
+
+// Verifica si el usuario tiene permiso para acceder al endpoint
+app.UseAuthorization();
 
 app.Run();
