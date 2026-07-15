@@ -1,6 +1,9 @@
+using Microsoft.AspNetCore.HttpLogging;
+
 using ShoppingCart.Infrastructure.Persistence;
 using ShoppingCart.Application.Products;
 using ShoppingCart.Api.Errors;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -26,6 +29,18 @@ builder.Services.AddScoped<IProductService, ProductService>();
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 
+//Centralizador de logging
+builder.Services.AddHttpLogging(options =>
+{
+    options.LoggingFields =
+        HttpLoggingFields.RequestMethod |
+        HttpLoggingFields.RequestPath |
+        HttpLoggingFields.ResponseStatusCode |
+        HttpLoggingFields.Duration;
+
+    options.CombineLogs = true;
+});
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
@@ -35,6 +50,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseHttpLogging();
 app.UseExceptionHandler();
 app.UseHttpsRedirection();
 

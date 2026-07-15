@@ -22,6 +22,25 @@ public sealed class GlobalExceptionHandler(
 
         var error = MapException(exception);
 
+        if (error.StatusCode >= StatusCodes.Status500InternalServerError)
+        {
+            logger.LogError(
+                exception,
+                "Request failed with status {StatusCode}. TraceId: {TraceId}",
+                error.StatusCode,
+                httpContext.TraceIdentifier
+            );
+        }
+        else
+        {
+            logger.LogWarning(
+                "Request rejected with status {StatusCode}. Message: {Message}. TraceId: {TraceId}",
+                error.StatusCode,
+                exception.Message,
+                httpContext.TraceIdentifier
+            );
+        }
+
         var problemDetails = new ProblemDetails
         {
             Status = error.StatusCode,

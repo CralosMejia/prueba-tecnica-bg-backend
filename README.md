@@ -392,7 +392,32 @@ Antes de realizar un commit se deben ejecutar todas las pruebas para confirmar q
 dotnet test ShoppingCart.sln
 ```
 
+## Logging
 
+La API utiliza el sistema de logging incluido en ASP.NET Core mediante `ILogger`.
+
+El registro se encuentra centralizado y permite guardar información básica de cada petición:
+
+- Método HTTP.
+- Ruta solicitada.
+- Código de respuesta.
+- Tiempo de ejecución.
+
+Las excepciones no controladas son registradas por el manejador global e incluyen un `traceId` para relacionar el error devuelto al cliente con los logs de la aplicación.
+
+Por seguridad, no se registran cuerpos de peticiones, contraseñas, tokens JWT ni encabezados de autorización.
+
+Para revisar los logs de la API ejecutada con Docker:
+
+```bash
+docker compose -f compose.yaml -f compose.dev.yaml logs api
+```
+
+Para observar los logs en tiempo real:
+
+```bash
+docker compose -f compose.yaml -f compose.dev.yaml logs -f api
+```
 
 ## Estado
 ## Productos
