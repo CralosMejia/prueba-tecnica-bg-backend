@@ -20,4 +20,9 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ShoppingCart.Domain\ShoppingCart.Domain.csproj" />
+    <ProjectReference Include="..\..\src\ShoppingCart.Application\ShoppingCart.Application.csproj" />
+  </ItemGroup>
+
 </Project>

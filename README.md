@@ -24,6 +24,18 @@ Se decidio realizar el back end con una arquitectura limpia. en el cual tendremo
 - Api: controllers, middlewares y configuracion
 - UnitTests: pruebas de las reglas y servicios principalesojk
 
+## Dependencias entre capas
+
+La solución mantiene las siguientes reglas de dependencia:
+
+- `Domain` no depende de otros proyectos.
+- `Application` depende de `Domain`.
+- `Infrastructure` depende de `Application` y `Domain`.
+- `Api` depende de `Application` e `Infrastructure`.
+- `UnitTests` prueba principalmente `Domain` y `Application`.
+
+De esta frma mantenemos la solucion desacoplada
+
 ## Estado
 
 Proyecto en configuración inicial.
