@@ -341,6 +341,88 @@ public sealed class OrderServiceTests
         Assert.Equal(100m, response.Total);
     }
 
+    [Fact]
+    public async Task CheckoutAsync_WhenStockChangesAfterAddingItemToCart_ThrowsInsufficientStockException()
+    {
+        // Arrange
+        var userId = Guid.NewGuid();
+
+        var product = CreateProduct(
+            code: "PROD-001",
+            price: 40m,
+            stock: 5
+        );
+
+        var cart = new Cart(userId);
+
+        /*
+        * Cuando se agregó al carrito había stock suficiente:
+        * carrito = 4
+        * stock = 5
+        */
+        cart.AddItem(
+            product.Id,
+            quantity: 4
+        );
+
+        /*
+        * Simula que otra compra consumió dos unidades
+        * antes de que este usuario confirmara el checkout.
+        *
+        * Stock actual: 3
+        * Cantidad solicitada: 4
+        */
+        product.DecreaseStock(quantity: 2);
+
+        var cartRepository =
+            new FakeCartRepository(cart);
+
+        var orderRepository =
+            new FakeOrderRepository();
+
+        var unitOfWork =
+            new FakeUnitOfWork();
+
+        var service = new OrderService(
+            cartRepository,
+            new FakeProductRepository(product),
+            orderRepository,
+            unitOfWork
+        );
+
+        // Act
+        var action = () => service.CheckoutAsync(
+            userId,
+            CancellationToken.None
+        );
+
+        // Assert
+        await Assert.ThrowsAsync<
+            InsufficientStockException
+        >(action);
+
+        // El checkout fallido no debe disminuir más el stock.
+        Assert.Equal(3, product.Stock);
+
+        // El producto debe permanecer en el carrito.
+        var cartItem = Assert.Single(cart.Items);
+
+        Assert.Equal(product.Id, cartItem.ProductId);
+        Assert.Equal(4, cartItem.Quantity);
+
+        // No debe crearse ninguna orden.
+        Assert.Empty(orderRepository.Orders);
+        Assert.Equal(0, orderRepository.AddCalls);
+
+        // La operación debe terminar mediante rollback.
+        Assert.Equal(1, unitOfWork.ExecuteCalls);
+        Assert.Equal(0, unitOfWork.CommitCalls);
+        Assert.Equal(1, unitOfWork.RollbackCalls);
+
+        // El repositorio del carrito no debe guardar directamente.
+        Assert.Equal(0, cartRepository.SaveChangesCalls);
+    }
+
     private static Product CreateProduct(
         string code,
         decimal price,

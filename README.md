@@ -983,3 +983,396 @@ Ejecutar todas las pruebas:
 ```powershell
 dotnet test ShoppingCart.sln
 ```
+
+
+## Órdenes y checkout transaccional
+
+El módulo de órdenes permite confirmar la compra del carrito activo del usuario autenticado, disminuir el stock de los productos, vaciar el carrito y conservar un historial de compras.
+
+Todos los endpoints de órdenes requieren autenticación mediante JWT.
+
+### Modelo de datos
+
+La persistencia de órdenes utiliza las entidades `Order` y `OrderItem`.
+
+#### `Order`
+
+Representa la cabecera de una compra y almacena:
+
+- Identificador de la orden.
+- Identificador del usuario propietario.
+- Fecha de creación en UTC.
+- Subtotal general.
+- Descuento aplicado.
+- Total final.
+- Colección de productos comprados.
+
+#### `OrderItem`
+
+Representa un producto incluido en una orden y almacena:
+
+- Identificador del detalle.
+- Identificador de la orden.
+- Identificador del producto.
+- Código del producto.
+- Nombre del producto.
+- Precio unitario al momento de la compra.
+- Cantidad comprada.
+- Subtotal del producto.
+
+La información comercial del producto se guarda como un **snapshot**. Esto permite conservar los datos históricos de la compra aunque posteriormente cambien el código, nombre o precio del producto.
+
+### Relaciones
+
+```text
+User 1 ─── N Order
+Order 1 ─── N OrderItem
+Product 1 ─── N OrderItem
+```
+
+La relación entre `User` y `Order` utiliza eliminación restringida para evitar que la eliminación de un usuario borre accidentalmente su historial de compras.
+
+La relación entre `Product` y `OrderItem` también utiliza eliminación restringida para proteger la trazabilidad histórica.
+
+Los detalles de una orden se eliminan en cascada únicamente cuando se elimina su orden principal.
+
+### Reglas de negocio
+
+El checkout aplica las siguientes reglas:
+
+- El usuario debe estar autenticado.
+- La compra utiliza el carrito persistente del usuario autenticado.
+- El cliente no envía nuevamente los productos ni las cantidades al confirmar la compra.
+- El carrito debe contener al menos un producto.
+- Todos los productos del carrito deben existir.
+- El stock se consulta y valida nuevamente durante el checkout.
+- No se permite comprar una cantidad superior al stock disponible.
+- Agregar un producto al carrito no reserva ni disminuye el stock.
+- El stock disminuye únicamente cuando la compra se confirma correctamente.
+- La orden conserva el código, nombre y precio vigentes al momento del checkout.
+- Se aplica un descuento del 10 % cuando el subtotal es estrictamente mayor a `$100`.
+- Un subtotal exactamente igual a `$100` no recibe descuento.
+- Después de una compra exitosa, el carrito queda vacío.
+- Cada usuario puede consultar únicamente sus propias órdenes.
+- Una orden inexistente y una orden perteneciente a otro usuario producen la misma respuesta `404 Not Found`.
+
+### Flujo del checkout
+
+El checkout se ejecuta en el siguiente orden:
+
+```text
+1. Iniciar la estrategia de ejecución de MySQL.
+2. Iniciar una transacción con aislamiento Serializable.
+3. Obtener el carrito del usuario autenticado.
+4. Rechazar el checkout si el carrito está vacío.
+5. Obtener los productos involucrados con seguimiento de EF Core.
+6. Verificar que todos los productos existan.
+7. Validar el stock disponible de todos los productos.
+8. Construir el snapshot de los productos.
+9. Crear la orden y sus detalles.
+10. Disminuir el stock.
+11. Vaciar el carrito.
+12. Ejecutar SaveChangesAsync.
+13. Confirmar la transacción.
+```
+
+Todas las validaciones de existencia y stock se realizan antes de modificar el estado de los productos, la orden o el carrito. Esto evita modificaciones parciales cuando uno de los productos no puede ser comprado.
+
+### Transacción del checkout
+
+La operación completa se ejecuta mediante la abstracción:
+
+```text
+IUnitOfWork
+```
+
+La capa `Application` define el contrato y la capa `Infrastructure` lo implementa mediante:
+
+```text
+EfUnitOfWork
+```
+
+La transacción incluye como una sola unidad de trabajo:
+
+```text
+Creación de Order
++ creación de OrderItems
++ disminución de Product.Stock
++ eliminación de CartItems
+```
+
+Los repositorios y `EfUnitOfWork` utilizan la misma instancia `Scoped` de `ShoppingCartDbContext`. Por ello, todos los cambios rastreados se confirman mediante una sola llamada a:
+
+```csharp
+await dbContext.SaveChangesAsync(cancellationToken);
+```
+
+Cuando la operación finaliza correctamente, se confirma mediante:
+
+```csharp
+await transaction.CommitAsync(cancellationToken);
+```
+
+Si ocurre una excepción durante la operación, se ejecuta:
+
+```csharp
+await transaction.RollbackAsync(CancellationToken.None);
+```
+
+El rollback se intenta con `CancellationToken.None` para que una cancelación de la petición no impida revertir la transacción.
+
+Después del rollback se limpia el `ChangeTracker` para evitar conservar entidades modificadas dentro del mismo `DbContext` si la estrategia de ejecución vuelve a intentar la operación.
+
+### Nivel de aislamiento
+
+El checkout utiliza:
+
+```csharp
+IsolationLevel.Serializable
+```
+
+Este nivel de aislamiento protege las operaciones de stock frente a checkouts concurrentes y reduce el riesgo de que dos compras se confirmen utilizando simultáneamente las mismas unidades disponibles.
+
+El stock se valida dentro de la transacción, utilizando el valor actual almacenado en la base de datos y no el valor que tenía el producto cuando fue agregado al carrito.
+
+### Estrategia de reintentos de MySQL
+
+La conexión utiliza una estrategia de reintentos para errores transitorios de MySQL.
+
+Debido a que una transacción iniciada manualmente no puede ejecutarse directamente cuando está activa `MySqlRetryingExecutionStrategy`, `EfUnitOfWork` obtiene la estrategia mediante:
+
+```csharp
+var executionStrategy =
+    dbContext.Database.CreateExecutionStrategy();
+```
+
+Toda la unidad transaccional se ejecuta dentro de:
+
+```csharp
+await executionStrategy.ExecuteAsync(...);
+```
+
+La estructura es:
+
+```text
+CreateExecutionStrategy
+└── ExecuteAsync
+    └── BeginTransactionAsync
+        ├── consultar carrito
+        ├── consultar productos
+        ├── validar stock
+        ├── crear orden
+        ├── disminuir stock
+        ├── vaciar carrito
+        ├── SaveChangesAsync
+        └── CommitAsync
+```
+
+Esta integración permite combinar correctamente los reintentos de conexión con una transacción explícita.
+
+### Endpoints
+
+#### Confirmar una compra
+
+```http
+POST /api/orders
+```
+
+No requiere body. El servidor utiliza el carrito asociado al usuario autenticado.
+
+Respuesta exitosa:
+
+```text
+201 Created
+```
+
+Ejemplo:
+
+```json
+{
+  "id": "50be22fb-421d-4655-a0e5-cd426e90dd1f",
+  "createdAtUtc": "2026-07-15T23:30:00Z",
+  "items": [
+    {
+      "productId": "557da7fc-1478-47ce-83f7-a89a264e1248",
+      "productCode": "PROD-001",
+      "productName": "Mechanical Keyboard",
+      "unitPrice": 50,
+      "quantity": 2,
+      "subtotal": 100
+    },
+    {
+      "productId": "ea640067-535f-434b-b557-b30a69611329",
+      "productCode": "PROD-002",
+      "productName": "Wireless Mouse",
+      "unitPrice": 20,
+      "quantity": 1,
+      "subtotal": 20
+    }
+  ],
+  "subtotal": 120,
+  "discount": 12,
+  "total": 108
+}
+```
+
+Posibles respuestas:
+
+| Código | Descripción |
+|---|---|
+| `201 Created` | Orden creada correctamente |
+| `400 Bad Request` | Identificador o solicitud inválida |
+| `401 Unauthorized` | Token ausente, inválido o expirado |
+| `404 Not Found` | Alguno de los productos ya no existe |
+| `409 Conflict` | Carrito vacío, stock insuficiente u otro conflicto de negocio |
+| `500 Internal Server Error` | Error inesperado |
+| `503 Service Unavailable` | Base de datos temporalmente no disponible |
+
+#### Obtener historial de compras
+
+```http
+GET /api/orders
+```
+
+Devuelve únicamente las órdenes pertenecientes al usuario autenticado, ordenadas desde la más reciente.
+
+Respuesta exitosa:
+
+```text
+200 OK
+```
+
+Cuando el usuario todavía no tiene órdenes, devuelve:
+
+```json
+[]
+```
+
+#### Obtener una orden por identificador
+
+```http
+GET /api/orders/{id}
+```
+
+Devuelve el detalle de una orden únicamente cuando pertenece al usuario autenticado.
+
+Posibles respuestas:
+
+| Código | Descripción |
+|---|---|
+| `200 OK` | Orden encontrada |
+| `400 Bad Request` | Identificador inválido |
+| `401 Unauthorized` | Token ausente, inválido o expirado |
+| `404 Not Found` | La orden no existe o pertenece a otro usuario |
+
+El servidor devuelve `404 Not Found` tanto para una orden inexistente como para una orden perteneciente a otro usuario. Esto evita revelar la existencia de compras ajenas.
+
+### Validación manual mediante Swagger
+
+Para validar el checkout:
+
+1. Ejecutar `POST /api/auth/login`.
+2. Copiar el valor de `accessToken`.
+3. Autorizar Swagger mediante el esquema Bearer.
+4. Consultar los productos con `GET /api/products`.
+5. Agregar un producto mediante `POST /api/cart/items`.
+6. Confirmar el contenido mediante `GET /api/cart`.
+7. Ejecutar `POST /api/orders`.
+8. Verificar la respuesta `201 Created`.
+9. Consultar nuevamente `GET /api/cart` y confirmar que esté vacío.
+10. Consultar `GET /api/products/{id}` y confirmar que el stock disminuyó.
+11. Consultar `GET /api/orders`.
+12. Consultar `GET /api/orders/{id}`.
+
+Para validar el rechazo de un carrito vacío, ejecutar nuevamente:
+
+```http
+POST /api/orders
+```
+
+El resultado esperado es:
+
+```text
+409 Conflict
+```
+
+Para validar el aislamiento entre usuarios:
+
+1. Crear una orden con el usuario Customer.
+2. Copiar el identificador de la orden.
+3. Iniciar sesión con otro usuario.
+4. Reemplazar el JWT en Swagger.
+5. Consultar la orden creada por el primer usuario.
+
+El resultado esperado es:
+
+```text
+404 Not Found
+```
+
+### Pruebas automatizadas
+
+Las pruebas de dominio verifican:
+
+- Creación de órdenes.
+- Generación de detalles.
+- Snapshot del producto.
+- Cálculo del subtotal por producto.
+- Cálculo del subtotal general.
+- Aplicación del descuento.
+- Cálculo del total.
+- Rechazo de órdenes sin productos.
+
+Las pruebas de `OrderService` verifican:
+
+- Checkout exitoso.
+- Creación de la orden y sus detalles.
+- Disminución del stock.
+- Vaciado del carrito.
+- Rechazo de un carrito vacío.
+- Rechazo por stock insuficiente.
+- Ausencia de modificaciones parciales antes de completar las validaciones.
+- Ejecución de la transacción.
+- Confirmación de operaciones exitosas.
+- Solicitud de rollback ante excepciones.
+- Historial filtrado por usuario.
+- Consulta de una orden propia.
+- Rechazo de órdenes inexistentes o pertenecientes a otro usuario.
+- Ausencia de llamadas directas a `CartRepository.SaveChangesAsync` durante el checkout.
+
+Las pruebas de `OrderController` verifican:
+
+- Obtención del usuario desde los claims del JWT.
+- Respuesta `201 Created` durante el checkout.
+- Generación de la ruta del recurso creado.
+- Respuesta `200 OK` para el historial.
+- Respuesta `200 OK` para el detalle.
+
+Para ejecutar únicamente las pruebas relacionadas con órdenes:
+
+```powershell
+dotnet test tests/ShoppingCart.UnitTests/ShoppingCart.UnitTests.csproj `
+  --filter "FullyQualifiedName~Order"
+```
+
+Para validar toda la solución:
+
+```powershell
+dotnet build ShoppingCart.sln
+dotnet test ShoppingCart.sln
+```
+
+### Estado de la validación transaccional
+
+Las pruebas unitarias verifican la orquestación de la transacción mediante una implementación fake de `IUnitOfWork`.
+
+El flujo real del checkout también fue validado manualmente contra MySQL mediante Docker y Swagger, comprobando que:
+
+- Se crea la orden.
+- Se crean los detalles.
+- Disminuye el stock.
+- Se vacía el carrito.
+- El historial devuelve la nueva orden.
+- El carrito vacío produce `409 Conflict`.
+
+Permanece como mejora adicional una prueba de integración automatizada que provoque deliberadamente un error antes del commit y compruebe directamente en MySQL que no se persistieron cambios parciales.
