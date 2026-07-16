@@ -42,6 +42,29 @@ builder.Services.AddInfrastructure(
     builder.Configuration
 );
 
+//Configuracion Cors
+const string FrontendCorsPolicy = "FrontendCorsPolicy";
+
+var allowedOrigins =
+    builder.Configuration
+        .GetSection("AllowedOrigins")
+        .Get<string[]>()
+    ?? Array.Empty<string>();
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy(
+        FrontendCorsPolicy,
+        policy =>
+        {
+            policy
+                .WithOrigins(allowedOrigins)
+                .AllowAnyHeader()
+                .AllowAnyMethod();
+        }
+    );
+});
+
 var app = builder.Build();
 
 // Registra información básica de cada petición y respuesta HTTP
@@ -65,13 +88,15 @@ if (app.Environment.IsDevelopment())
 // app.UseAuthentication();
 // app.UseAuthorization();
 
-// Registra los endpoints definidos mediante controllers
-app.MapControllers();
+app.UseCors(FrontendCorsPolicy);
 
 // Obtiene y valida la identidad enviada mediante el token JWT
 app.UseAuthentication();
 
 // Verifica si el usuario tiene permiso para acceder al endpoint
 app.UseAuthorization();
+
+// Registra los endpoints definidos mediante controllers
+app.MapControllers();
 
 app.Run();

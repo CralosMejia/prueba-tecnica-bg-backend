@@ -37,6 +37,7 @@ services:
       Jwt__Audience: ${JWT_AUDIENCE}
       Jwt__ExpirationMinutes: ${JWT_EXPIRATION_MINUTES}
       Jwt__Key: ${JWT_KEY}
+      AllowedOrigins__0: ${FRONTEND_ORIGIN}
     ports:
       - "${API_PORT}:8080"
     depends_on:
