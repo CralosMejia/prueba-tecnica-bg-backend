@@ -360,5 +360,17 @@ public sealed class CartServiceTests
 
             return Task.FromResult(product);
         }
+        public Task<IReadOnlyList<Product>> GetByIdsForUpdateAsync(
+        IReadOnlyCollection<Guid> ids,
+        CancellationToken cancellationToken = default)
+        {
+            var matchingProducts = _products
+                .Where(product => ids.Contains(product.Id))
+                .ToList();
+
+            return Task.FromResult<IReadOnlyList<Product>>(
+                matchingProducts
+            );
+        }
     }
 }

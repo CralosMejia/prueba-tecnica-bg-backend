@@ -49,4 +49,23 @@ public class ProductRepository : IProductRepository
                 cancellationToken
             );
     }
+
+    public async Task<IReadOnlyList<Product>>
+    GetByIdsForUpdateAsync(
+        IReadOnlyCollection<Guid> ids,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+
+        if (ids.Count == 0)
+        {
+            return Array.Empty<Product>();
+        }
+
+        var productIds = ids.ToArray();
+
+        return await _dbContext.Products
+            .Where(product => productIds.Contains(product.Id))
+            .ToListAsync(cancellationToken);
+    }
 }

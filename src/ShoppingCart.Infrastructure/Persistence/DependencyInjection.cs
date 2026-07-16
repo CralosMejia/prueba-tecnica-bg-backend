@@ -13,6 +13,10 @@ using ShoppingCart.Infrastructure.Authentication;
 using ShoppingCart.Application.Authentication;
 using ShoppingCart.Application.Carts;
 using ShoppingCart.Infrastructure.Carts;
+using ShoppingCart.Application.Orders;
+using ShoppingCart.Infrastructure.Orders;
+
+using ShoppingCart.Application.Common.Persistence;
 
 namespace ShoppingCart.Infrastructure.Persistence;
 
@@ -55,6 +59,21 @@ public static class DependencyInjection
         services.AddScoped<
             ICartRepository,
             CartRepository
+        >();
+        
+        services.AddScoped<
+            IOrderRepository,
+            OrderRepository
+        >();
+
+        services.AddScoped<
+            IOrderRepository,
+            OrderRepository
+        >();
+
+        services.AddScoped<
+            IUnitOfWork,
+            EfUnitOfWork
         >();
 
         // Seguridad de contraseñas

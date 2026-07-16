@@ -13,4 +13,9 @@ public interface IProductRepository
         Guid id,
         CancellationToken cancellationToken = default
     );
+
+    Task<IReadOnlyList<Product>> GetByIdsForUpdateAsync(
+        IReadOnlyCollection<Guid> ids,
+        CancellationToken cancellationToken = default
+    );
 }
