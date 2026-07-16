@@ -68,7 +68,13 @@ public sealed class OrderServiceTests
         Assert.Empty(cart.Items);
 
         Assert.Equal(1, orderRepository.AddCalls);
-        Assert.Equal(1, unitOfWork.SaveChangesCalls);
+
+        Assert.Equal(1, unitOfWork.ExecuteCalls);
+        Assert.Equal(1, unitOfWork.CommitCalls);
+        Assert.Equal(0, unitOfWork.RollbackCalls);
+
+        // El repositorio del carrito no debe guardar directamente.
+        Assert.Equal(0, cartRepository.SaveChangesCalls);
 
         var order = Assert.Single(
             orderRepository.Orders
@@ -91,6 +97,9 @@ public sealed class OrderServiceTests
         var userId = Guid.NewGuid();
         var cart = new Cart(userId);
 
+        var cartRepository =
+            new FakeCartRepository(cart);
+
         var orderRepository =
             new FakeOrderRepository();
 
@@ -98,7 +107,7 @@ public sealed class OrderServiceTests
             new FakeUnitOfWork();
 
         var service = new OrderService(
-            new FakeCartRepository(cart),
+            cartRepository,
             new FakeProductRepository(),
             orderRepository,
             unitOfWork
@@ -116,7 +125,12 @@ public sealed class OrderServiceTests
         >(action);
 
         Assert.Empty(orderRepository.Orders);
-        Assert.Equal(0, unitOfWork.SaveChangesCalls);
+
+        Assert.Equal(1, unitOfWork.ExecuteCalls);
+        Assert.Equal(0, unitOfWork.CommitCalls);
+        Assert.Equal(1, unitOfWork.RollbackCalls);
+
+        Assert.Equal(0, cartRepository.SaveChangesCalls);
     }
 
     [Fact]
@@ -142,10 +156,14 @@ public sealed class OrderServiceTests
             availableProduct.Id,
             quantity: 2
         );
+
         cart.AddItem(
             unavailableProduct.Id,
             quantity: 2
         );
+
+        var cartRepository =
+            new FakeCartRepository(cart);
 
         var orderRepository =
             new FakeOrderRepository();
@@ -154,7 +172,7 @@ public sealed class OrderServiceTests
             new FakeUnitOfWork();
 
         var service = new OrderService(
-            new FakeCartRepository(cart),
+            cartRepository,
             new FakeProductRepository(
                 availableProduct,
                 unavailableProduct
@@ -182,7 +200,12 @@ public sealed class OrderServiceTests
         Assert.Equal(2, cart.Items.Count);
 
         Assert.Empty(orderRepository.Orders);
-        Assert.Equal(0, unitOfWork.SaveChangesCalls);
+
+        Assert.Equal(1, unitOfWork.ExecuteCalls);
+        Assert.Equal(0, unitOfWork.CommitCalls);
+        Assert.Equal(1, unitOfWork.RollbackCalls);
+
+        Assert.Equal(0, cartRepository.SaveChangesCalls);
     }
 
     [Fact]
@@ -357,6 +380,7 @@ public sealed class OrderServiceTests
             CancellationToken cancellationToken = default)
         {
             Cart = cart;
+
             return Task.CompletedTask;
         }
 
@@ -364,6 +388,7 @@ public sealed class OrderServiceTests
             CancellationToken cancellationToken = default)
         {
             SaveChangesCalls++;
+
             return Task.CompletedTask;
         }
     }
@@ -463,14 +488,34 @@ public sealed class OrderServiceTests
     private sealed class FakeUnitOfWork
         : IUnitOfWork
     {
-        public int SaveChangesCalls { get; private set; }
+        public int ExecuteCalls { get; private set; }
 
-        public Task<int> SaveChangesAsync(
+        public int CommitCalls { get; private set; }
+
+        public int RollbackCalls { get; private set; }
+
+        public async Task<T> ExecuteInTransactionAsync<T>(
+            Func<CancellationToken, Task<T>> operation,
             CancellationToken cancellationToken = default)
         {
-            SaveChangesCalls++;
+            ExecuteCalls++;
 
-            return Task.FromResult(1);
+            try
+            {
+                var result = await operation(
+                    cancellationToken
+                );
+
+                CommitCalls++;
+
+                return result;
+            }
+            catch
+            {
+                RollbackCalls++;
+
+                throw;
+            }
         }
     }
 }

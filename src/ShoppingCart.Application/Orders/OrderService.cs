@@ -15,95 +15,86 @@ public sealed class OrderService(
     IUnitOfWork unitOfWork)
     : IOrderService
 {
-    public async Task<OrderResponse> CheckoutAsync(
+    
+    public Task<OrderResponse> CheckoutAsync(
         Guid userId,
         CancellationToken cancellationToken = default)
     {
         ValidateUserId(userId);
 
-        var cart = await cartRepository.GetByUserIdAsync(
-            userId,
+        return unitOfWork.ExecuteInTransactionAsync(
+            async transactionCancellationToken =>
+            {
+                var cart =
+                    await cartRepository.GetByUserIdAsync(
+                        userId,
+                        transactionCancellationToken
+                    );
+
+                if (cart is null || cart.Items.Count == 0)
+                {
+                    throw new BusinessConflictException(
+                        "The cart is empty."
+                    );
+                }
+
+                var productIds = cart.Items
+                    .Select(item => item.ProductId)
+                    .ToArray();
+
+                var products =
+                    await productRepository
+                        .GetByIdsForUpdateAsync(
+                            productIds,
+                            transactionCancellationToken
+                        );
+
+                EnsureAllProductsExist(
+                    cart,
+                    products
+                );
+
+                var productsById = products.ToDictionary(
+                    product => product.Id
+                );
+
+                ValidateAllStock(
+                    cart,
+                    productsById
+                );
+
+                var orderLines = BuildOrderLines(
+                    cart,
+                    productsById
+                );
+
+                var order = Order.Create(
+                    userId,
+                    orderLines,
+                    DateTime.UtcNow
+                );
+
+                foreach (var cartItem in cart.Items)
+                {
+                    var product =
+                        productsById[cartItem.ProductId];
+
+                    product.DecreaseStock(
+                        cartItem.Quantity
+                    );
+                }
+
+                await orderRepository.AddAsync(
+                    order,
+                    transactionCancellationToken
+                );
+
+                cart.Clear();
+
+                return MapOrder(order);
+            },
             cancellationToken
         );
-
-        if (cart is null || cart.Items.Count == 0)
-        {
-            throw new BusinessConflictException(
-                "The cart is empty."
-            );
-        }
-
-        var productIds = cart.Items
-            .Select(item => item.ProductId)
-            .ToArray();
-
-        var products =
-            await productRepository.GetByIdsForUpdateAsync(
-                productIds,
-                cancellationToken
-            );
-
-        EnsureAllProductsExist(
-            cart,
-            products
-        );
-
-        var productsById = products.ToDictionary(
-            product => product.Id
-        );
-
-        /*
-         * Primero validamos todos los productos.
-         * Todavía no modificamos stock, carrito ni órdenes.
-         */
-        ValidateAllStock(
-            cart,
-            productsById
-        );
-
-        var orderLines = BuildOrderLines(
-            cart,
-            productsById
-        );
-
-        var order = Order.Create(
-            userId,
-            orderLines,
-            DateTime.UtcNow
-        );
-
-        /*
-         * Solo después de que todas las validaciones pasaron
-         * comenzamos a modificar el estado.
-         */
-        foreach (var cartItem in cart.Items)
-        {
-            var product =
-                productsById[cartItem.ProductId];
-
-            product.DecreaseStock(
-                cartItem.Quantity
-            );
-        }
-
-        await orderRepository.AddAsync(
-            order,
-            cancellationToken
-        );
-
-        cart.Clear();
-
-        /*
-         * Único punto de confirmación:
-         * - Order y OrderItems
-         * - Product.Stock
-         * - eliminación de CartItems
-         */
-        await unitOfWork.SaveChangesAsync(
-            cancellationToken
-        );
-
-        return MapOrder(order);
     }
 
     public async Task<IReadOnlyList<OrderResponse>>
