@@ -1,4 +1,3 @@
-@"
 # Shopping Cart Backend
 
 Esta es la prueba tecnica para BG donde se busca crear un backend modular y desacoplado para gestionar peticiones mediante Apirest.
@@ -22,7 +21,8 @@ Se decidio realizar el back end con una arquitectura limpia. en el cual tendremo
 - Application: Casos de uso DTO's
 - Infraestrutura: EF, repositorios, JWT y servicios externos
 - Api: controllers, middlewares y configuracion
-- UnitTests: pruebas de las reglas y servicios principalesojk
+- UnitTests: pruebas de las reglas y servicios principales
+- IntegrationTests: prueba del checkout transaccional contra una base MySQL real
 
 ## Dependencias entre capas
 
@@ -333,146 +333,81 @@ dotnet tool run dotnet-ef migrations list --project src/ShoppingCart.Infrastruct
 
 Las migraciones forman parte del código fuente y deben mantenerse dentro del repositorio para permitir que otros desarrolladores creen la misma estructura de base de datos.
 
-## Pruebas
+## Documentación de la API
 
-El proyecto lo he desarrollado con tdd para poder probar cada funcionalida
+Todos los endpoints estan documentados en Swagger. Levantando el proyecto (local o Docker) se puede entrar a `/swagger` y ahi aparecen las rutas, los request, los response y los codigos de estado de cada uno.
 
-El ciclo que se utiliza es:
+Para probar los endpoints protegidos hay que autenticarse primero:
 
-1. **Red:** crear una prueba y comprobar que falla.
-2. **Green:** implementar el código mínimo necesario para que la prueba pase.
-3. **Refactor:** mejorar el código sin cambiar su comportamiento.
-4. Ejecutar nuevamente todas las pruebas antes de realizar el commit.
+1. Ejecutar `POST /api/auth/login` con alguno de los usuarios semilla.
+2. Copiar el valor de `accessToken`.
+3. Pulsar el botón **Authorize**.
+4. Pegar el token.
 
-Las pruebas unitarias se encuentran dentro del proyecto:
+Con la configuración actual de Swagger no hace falta escribir manualmente la palabra `Bearer`.
+
+## Base de datos y relaciones
+
+La persistencia se maneja en MySQL con estas tablas:
 
 ```text
-tests/ShoppingCart.UnitTests
-````
-
-### Ejecutar todas las pruebas
-
-Desde la raíz del backend:
-
-```bash
-dotnet test ShoppingCart.sln
+users
+products
+carts
+cart_items
+orders
+order_items
 ```
 
-### Ejecutar solo el proyecto de pruebas unitarias
+### Carrito
 
-```bash
-dotnet test tests/ShoppingCart.UnitTests/ShoppingCart.UnitTests.csproj
+El carrito se relaciona asi:
+
+```text
+User 1 ─── 1 Cart
+Cart 1 ─── N CartItem
+Product 1 ─── N CartItem
 ```
 
-### Ejecutar una prueba o grupo específico
+La tabla `carts` tiene una restricción única sobre `UserId`, para que cada usuario tenga como máximo un carrito.
 
-Se puede utilizar un filtro con el nombre de la clase de prueba:
+La tabla `cart_items` usa una clave compuesta:
 
-```bash
-dotnet test tests/ShoppingCart.UnitTests/ShoppingCart.UnitTests.csproj --filter "FullyQualifiedName~CartTests"
+```text
+CartId + ProductId
 ```
 
-También se puede filtrar por el nombre de un método:
+Con esto evito que el mismo producto se guarde dos veces en el mismo carrito. Si se vuelve a agregar un producto que ya está, lo que hago es sumar la cantidad.
 
-```bash
-dotnet test tests/ShoppingCart.UnitTests/ShoppingCart.UnitTests.csproj --filter "FullyQualifiedName~CalculateTotals"
+El precio no se guarda dentro de `cart_items`. Para armar la respuesta del carrito consulto el precio actual desde `products`. Los precios históricos se guardan después, pero en el detalle de las órdenes.
+
+### Órdenes
+
+Las órdenes usan `Order` y `OrderItem`:
+
+```text
+User 1 ─── N Order
+Order 1 ─── N OrderItem
+Product 1 ─── N OrderItem
 ```
 
-### Ejecutar pruebas mientras se modifica el código
+`Order` es la cabecera de la compra (usuario, fecha, subtotal, descuento y total) y `OrderItem` es cada producto comprado.
 
-Para ejecutar automáticamente las pruebas cada vez que se guarda un cambio:
+Algo importante: en `OrderItem` guardo un **snapshot** del producto (código, nombre y precio unitario al momento de la compra). De esta forma, aunque el producto cambie de precio o nombre después, el historial sigue mostrando lo que el usuario realmente pagó.
 
-```bash
-dotnet watch --project tests/ShoppingCart.UnitTests/ShoppingCart.UnitTests.csproj test
-```
+Las relaciones `User → Order` y `Product → OrderItem` usan eliminación restringida para no perder el historial si se llega a borrar un usuario o un producto. Los `OrderItem` solo se borran en cascada cuando se borra su `Order`.
 
-Antes de realizar un commit se deben ejecutar todas las pruebas para confirmar que los cambios nuevos no rompieron funcionalidades anteriores:
+### Borrado lógico de productos
 
-```bash
-dotnet test ShoppingCart.sln
-```
-
-## Logging
-
-La API utiliza el sistema de logging incluido en ASP.NET Core mediante `ILogger`.
-
-El registro se encuentra centralizado y permite guardar información básica de cada petición:
-
-- Método HTTP.
-- Ruta solicitada.
-- Código de respuesta.
-- Tiempo de ejecución.
-
-Las excepciones no controladas son registradas por el manejador global e incluyen un `traceId` para relacionar el error devuelto al cliente con los logs de la aplicación.
-
-Por seguridad, no se registran cuerpos de peticiones, contraseñas, tokens JWT ni encabezados de autorización.
-
-Para revisar los logs de la API ejecutada con Docker:
-
-```bash
-docker compose -f compose.yaml -f compose.dev.yaml logs api
-```
-
-Para observar los logs en tiempo real:
-
-```bash
-docker compose -f compose.yaml -f compose.dev.yaml logs -f api
-```
-
-## Estado
-## Productos
-
-El módulo de productos permite consultar los productos almacenados y realizar búsquedas por nombre, código o categoría.
-
-### Listar productos
-
-```http
-GET /api/products
-```
-
-Si no existen productos, devuelve una lista vacía con estado `200`.
-
-### Buscar productos
-
-```http
-GET /api/products?search=keyboard
-```
-
-El parámetro `search` compara el texto ingresado con el nombre, código y categoría del producto.
-
-### Consultar un producto
-
-```http
-GET /api/products/{id}
-```
-
-Si el producto no existe, la API devuelve `404`.
-
-La base de datos contiene productos semilla para poder probar estos endpoints después de aplicar las migraciones.
-
-## Manejo de errores
-
-La API utiliza un manejador global de excepciones para evitar repetir bloques `try/catch` dentro de cada controller.
-
-Los errores se devuelven usando el formato `ProblemDetails` e incluyen un `traceId` que permite relacionar la respuesta con los logs de la aplicación.
-
-Los códigos principales utilizados son:
-
-- `400`: datos o argumentos inválidos.
-- `404`: recurso no encontrado.
-- `409`: conflicto con una regla de negocio.
-- `500`: error interno no controlado.
-- `503`: la base de datos no se encuentra disponible.
-
-Los detalles técnicos y stack traces se registran en los logs, pero no se exponen en las respuestas HTTP.
+Los productos no se borran físicamente. Uso un campo `IsActive` para desactivarlos. Decidi hacerlo asi porque las órdenes referencian productos, y borrarlos de verdad rompería el historial de compras. Los endpoints públicos solo devuelven productos activos; el administrador puede ver también los inactivos.
 
 ## Autenticación, usuarios y autorización
 
-La API implementa autenticación mediante JSON Web Token (JWT).
+La autenticación la manejo con JSON Web Token (JWT).
 
-Los usuarios se almacenan en MySQL y sus contraseñas no se guardan en texto plano. La base de datos conserva únicamente un hash generado mediante `PasswordHasher`.
+Los usuarios se guardan en MySQL y las contraseñas nunca se guardan en texto plano, solo un hash generado con `PasswordHasher`.
 
-La autenticación sigue el siguiente flujo:
+El flujo del login es este:
 
 ```text
 POST /api/auth/login
@@ -490,24 +425,24 @@ Verificación de contraseña
 Generación del token JWT
 ```
 
+Cuando el correo no existe o la contraseña es incorrecta devuelvo el mismo mensaje. Asi no revelo qué correos están registrados.
+
 ### Roles disponibles
 
-Actualmente se manejan dos roles almacenados como texto:
+Manejo dos roles guardados como texto:
 
 - `Customer`: usuario normal de la aplicación.
-- `Admin`: usuario preparado para funcionalidades administrativas opcionales.
+- `Admin`: usuario con acceso a la administración de productos.
 
-El rol se incluye dentro del JWT como un claim. Esto permitirá proteger endpoints administrativos utilizando:
+El rol va dentro del JWT como un claim, lo que me permite proteger endpoints con:
 
 ```csharp
 [Authorize(Roles = UserRoles.Admin)]
 ```
 
-Los endpoints de consulta de productos están disponibles para cualquier usuario autenticado.
-
 ### Usuarios semilla
 
-La migración de Entity Framework crea los siguientes usuarios de desarrollo:
+La migración crea estos usuarios de desarrollo:
 
 | Rol | Correo | Contraseña |
 |---|---|---|
@@ -516,11 +451,11 @@ La migración de Entity Framework crea los siguientes usuarios de desarrollo:
 
 Estas credenciales son únicamente para desarrollo y evaluación técnica.
 
-Las contraseñas no se almacenan directamente en la base de datos. `UserConfiguration` contiene hashes previamente generados y fijos para evitar cambios innecesarios entre migraciones.
+Las contraseñas no se guardan directamente. `UserConfiguration` tiene hashes previamente generados y fijos para evitar cambios innecesarios entre migraciones.
 
 ### Configuración JWT
 
-La configuración pública del token se encuentra en `appsettings.json`:
+La parte pública del token está en `appsettings.json`:
 
 ```json
 {
@@ -532,7 +467,7 @@ La configuración pública del token se encuentra en `appsettings.json`:
 }
 ```
 
-La clave privada utilizada para firmar los tokens no se almacena en Git.
+La clave privada para firmar los tokens no se guarda en Git.
 
 ### Generar una clave JWT
 
@@ -548,15 +483,13 @@ $jwtKey = [Convert]::ToBase64String($bytes)
 $jwtKey
 ```
 
-El comando genera una clave aleatoria codificada en Base64.
-
-No se debe compartir ni agregar esta clave al repositorio.
+El comando genera una clave aleatoria en Base64. No se debe compartir ni subir al repositorio.
 
 ### Guardar la clave para ejecución local
 
-La API utiliza User Secrets durante la ejecución local.
+La API usa User Secrets en local.
 
-Inicializar User Secrets, en caso de que todavía no estén configurados:
+Inicializar User Secrets, si todavía no están configurados:
 
 ```powershell
 dotnet user-secrets init `
@@ -570,14 +503,14 @@ dotnet user-secrets set "Jwt:Key" $jwtKey `
   --project src/ShoppingCart.Api
 ```
 
-Verificar las configuraciones guardadas:
+Verificar lo guardado:
 
 ```powershell
 dotnet user-secrets list `
   --project src/ShoppingCart.Api
 ```
 
-También debe existir una cadena de conexión local:
+También debe existir la cadena de conexión local:
 
 ```powershell
 dotnet user-secrets set `
@@ -597,9 +530,7 @@ JWT_EXPIRATION_MINUTES=60
 JWT_KEY=YOUR_GENERATED_SECRET
 ```
 
-El archivo `.env` no debe subirse al repositorio.
-
-El archivo `.env.example` contiene únicamente valores de referencia:
+El archivo `.env.example` solo tiene valores de referencia:
 
 ```env
 JWT_ISSUER=ShoppingCart.Api
@@ -608,7 +539,7 @@ JWT_EXPIRATION_MINUTES=60
 JWT_KEY=replace_with_a_secure_key
 ```
 
-Docker Compose convierte estas variables a la estructura de configuración utilizada por ASP.NET Core:
+Docker Compose convierte estas variables a la estructura de configuración de ASP.NET Core:
 
 ```yaml
 environment:
@@ -618,456 +549,52 @@ environment:
   Jwt__Key: ${JWT_KEY}
 ```
 
-Los dobles guiones bajos representan secciones anidadas de configuración:
+Los dobles guiones bajos representan secciones anidadas:
 
 ```text
 Jwt__Key → Jwt:Key
 ```
 
-### Ejecutar migraciones
-
-Crear una migración:
-
-```powershell
-dotnet ef migrations add AddUsers `
-  --project src/ShoppingCart.Infrastructure `
-  --startup-project src/ShoppingCart.Api `
-  --output-dir Persistence/Migrations
-```
-
-Aplicar las migraciones:
-
-```powershell
-dotnet ef database update `
-  --project src/ShoppingCart.Infrastructure `
-  --startup-project src/ShoppingCart.Api
-```
-
-La migración crea:
-
-- La tabla `users`.
-- Un índice único para el correo electrónico.
-- Un usuario `Customer`.
-- Un usuario `Admin`.
-- Los hashes de las contraseñas.
-
-### Endpoint de login
-
-```http
-POST /api/auth/login
-```
-
-Request:
-
-```json
-{
-  "email": "customer@shoppingcart.com",
-  "password": "Customer123!"
-}
-```
-
-Respuesta exitosa:
-
-```json
-{
-  "accessToken": "JWT_TOKEN",
-  "expiresAtUtc": "2026-07-16T12:00:00Z",
-  "email": "customer@shoppingcart.com",
-  "role": "Customer",
-  "tokenType": "Bearer"
-}
-```
-
-### Códigos HTTP del login
-
-| Código | Significado |
-|---|---|
-| `200 OK` | Credenciales válidas y token generado. |
-| `400 Bad Request` | Correo, contraseña o formato del request inválido. |
-| `401 Unauthorized` | Correo o contraseña incorrectos. |
-| `500 Internal Server Error` | Error interno no controlado. |
-| `503 Service Unavailable` | La base de datos no está disponible. |
-
-La API devuelve el mismo mensaje cuando el correo no existe o la contraseña es incorrecta. Esto evita revelar qué correos están registrados.
-
-### Usar JWT en Swagger
-
-1. Ejecutar `POST /api/auth/login`.
-2. Copiar únicamente el valor de `accessToken`.
-3. Pulsar el botón **Authorize**.
-4. Pegar el token.
-5. Confirmar la autorización.
-6. Ejecutar los endpoints protegidos.
-
-Con la configuración actual de Swagger no es necesario escribir manualmente la palabra `Bearer`.
-
-### Endpoints protegidos
-
-Los endpoints de productos requieren un usuario autenticado:
-
-```http
-GET /api/products
-GET /api/products/{id}
-```
-
-Una petición sin token o con un token inválido devuelve:
-
-```text
-401 Unauthorized
-```
-
 ### Seguridad
 
-- La clave JWT no se almacena en Git.
-- Las contraseñas no se almacenan en texto plano.
-- Los tokens y contraseñas no se registran mediante HTTP logging.
+- La clave JWT no se guarda en Git.
+- Las contraseñas no se guardan en texto plano.
+- Los tokens y contraseñas no se registran en el HTTP logging.
 - El JWT contiene el identificador, correo y rol del usuario.
-- Los tokens tienen un tiempo de expiración configurable.
+- Los tokens tienen expiración configurable.
 - La validación verifica firma, issuer, audience y expiración.
 
+## Checkout transaccional
 
-## Carrito de compras
-
-La API implementa un carrito de compras persistente para cada usuario autenticado.
-
-Cada carrito pertenece a un único usuario y sus operaciones se realizan utilizando el identificador almacenado en el JWT. El cliente no envía el `UserId` en la ruta ni en el cuerpo de la petición.
-
-### Flujo de identificación del usuario
-
-```text
-JWT
-  ↓
-ClaimTypes.NameIdentifier
-  ↓
-CartController
-  ↓
-CartService
-  ↓
-CartRepository
-  ↓
-Carrito perteneciente al usuario autenticado
-```
-
-Esto evita que un usuario pueda consultar o modificar el carrito de otra persona.
-
-### Modelo relacional
-
-El carrito utiliza las siguientes relaciones:
-
-```text
-User 1 ─── 1 Cart
-Cart 1 ─── N CartItem
-Product 1 ─── N CartItem
-```
-
-Tablas involucradas:
-
-```text
-users
-products
-carts
-cart_items
-```
-
-La tabla `carts` contiene una restricción única sobre `UserId`, garantizando que cada usuario tenga como máximo un carrito activo.
-
-La tabla `cart_items` utiliza una clave compuesta:
-
-```text
-CartId + ProductId
-```
-
-Esto impide que el mismo producto se almacene varias veces dentro del mismo carrito. Cuando se vuelve a agregar un producto existente, se incrementa su cantidad.
+El checkout es la parte mas delicada, porque tengo que crear la orden, disminuir el stock y vaciar el carrito, y todo eso tiene que pasar junto o no pasar nada.
 
 ### Reglas de negocio
-
-El carrito implementa las siguientes reglas:
-
-- Las cantidades deben ser mayores que cero.
-- El producto debe existir.
-- La cantidad solicitada no puede superar el stock disponible.
-- Al agregar nuevamente un producto, se valida la cantidad acumulada.
-- Al actualizar un producto, la nueva cantidad reemplaza a la anterior.
-- Un usuario solo puede acceder a su propio carrito.
-- El subtotal por producto se calcula multiplicando el precio actual por la cantidad.
-- El subtotal general corresponde a la suma de todos los productos.
-- Se aplica un descuento del 10 % cuando el subtotal es estrictamente mayor que `$100`.
-- Cuando el subtotal es exactamente `$100`, no se aplica descuento.
-
-### Manejo del stock
-
-Agregar un producto al carrito no disminuye el stock.
-
-```text
-Agregar al carrito
-→ validar stock disponible
-→ guardar CartItem
-→ no modificar Product.Stock
-```
-
-Eliminar un producto o vaciar el carrito tampoco aumenta el stock, porque las unidades nunca fueron reservadas.
-
-El stock se modificará únicamente durante el checkout:
-
-```text
-Confirmar compra
-→ validar nuevamente el stock
-→ crear la orden
-→ disminuir el stock
-→ vaciar el carrito
-→ confirmar la transacción
-```
-
-La validación se realiza nuevamente durante el checkout porque otro usuario podría comprar las unidades disponibles antes de que se confirme la compra.
-
-### Respuesta del carrito
-
-Ejemplo:
-
-```json
-{
-  "items": [
-    {
-      "productId": "11111111-1111-1111-1111-111111111111",
-      "code": "PROD-001",
-      "name": "Mechanical Keyboard",
-      "unitPrice": 50,
-      "quantity": 3,
-      "subtotal": 150
-    }
-  ],
-  "subtotal": 150,
-  "discount": 15,
-  "total": 135
-}
-```
-
-El precio no se almacena dentro de `cart_items`. Para construir la respuesta, la API consulta el precio actual desde la tabla `products`.
-
-Los precios históricos se almacenarán posteriormente en los detalles de las órdenes.
-
-### Obtener el carrito
-
-```http
-GET /api/cart
-```
-
-Una respuesta para un carrito vacío es:
-
-```json
-{
-  "items": [],
-  "subtotal": 0,
-  "discount": 0,
-  "total": 0
-}
-```
-
-Código esperado:
-
-```text
-200 OK
-```
-
-### Agregar un producto
-
-```http
-POST /api/cart/items
-```
-
-Request:
-
-```json
-{
-  "productId": "11111111-1111-1111-1111-111111111111",
-  "quantity": 2
-}
-```
-
-Código esperado:
-
-```text
-201 Created
-```
-
-Si el producto ya está en el carrito, la cantidad enviada se suma a la cantidad existente.
-
-### Actualizar una cantidad
-
-```http
-PUT /api/cart/items/{productId}
-```
-
-Request:
-
-```json
-{
-  "quantity": 4
-}
-```
-
-La cantidad enviada reemplaza a la cantidad anterior.
-
-Código esperado:
-
-```text
-200 OK
-```
-
-### Eliminar un producto
-
-```http
-DELETE /api/cart/items/{productId}
-```
-
-Código esperado:
-
-```text
-200 OK
-```
-
-### Vaciar el carrito
-
-```http
-DELETE /api/cart
-```
-
-La operación elimina todos los ítems, pero conserva el carrito principal asociado al usuario.
-
-Código esperado:
-
-```text
-200 OK
-```
-
-### Códigos HTTP
-
-| Código | Descripción |
-|---|---|
-| `200 OK` | Consulta, actualización, eliminación o vaciado exitoso. |
-| `201 Created` | Producto agregado correctamente al carrito. |
-| `400 Bad Request` | Cantidad, identificador o request inválido. |
-| `401 Unauthorized` | Token ausente, inválido o expirado. |
-| `404 Not Found` | Producto, carrito o ítem inexistente. |
-| `409 Conflict` | La cantidad solicitada supera el stock disponible. |
-| `500 Internal Server Error` | Error inesperado. |
-| `503 Service Unavailable` | La base de datos no está disponible. |
-
-### Autenticación
-
-Todos los endpoints del carrito requieren JWT:
-
-```csharp
-[Authorize]
-```
-
-Para probarlos desde Swagger:
-
-1. Ejecutar `POST /api/auth/login`.
-2. Copiar el valor de `accessToken`.
-3. Pulsar **Authorize**.
-4. Pegar únicamente el token.
-5. Ejecutar los endpoints del carrito.
-
-### Pruebas
-
-Ejecutar las pruebas relacionadas con el carrito:
-
-```powershell
-dotnet test tests/ShoppingCart.UnitTests/ShoppingCart.UnitTests.csproj `
-  --filter "FullyQualifiedName~CartTests|FullyQualifiedName~CartServiceTests|FullyQualifiedName~CartControllerTests"
-```
-
-Ejecutar todas las pruebas:
-
-```powershell
-dotnet test ShoppingCart.sln
-```
-
-
-## Órdenes y checkout transaccional
-
-El módulo de órdenes permite confirmar la compra del carrito activo del usuario autenticado, disminuir el stock de los productos, vaciar el carrito y conservar un historial de compras.
-
-Todos los endpoints de órdenes requieren autenticación mediante JWT.
-
-### Modelo de datos
-
-La persistencia de órdenes utiliza las entidades `Order` y `OrderItem`.
-
-#### `Order`
-
-Representa la cabecera de una compra y almacena:
-
-- Identificador de la orden.
-- Identificador del usuario propietario.
-- Fecha de creación en UTC.
-- Subtotal general.
-- Descuento aplicado.
-- Total final.
-- Colección de productos comprados.
-
-#### `OrderItem`
-
-Representa un producto incluido en una orden y almacena:
-
-- Identificador del detalle.
-- Identificador de la orden.
-- Identificador del producto.
-- Código del producto.
-- Nombre del producto.
-- Precio unitario al momento de la compra.
-- Cantidad comprada.
-- Subtotal del producto.
-
-La información comercial del producto se guarda como un **snapshot**. Esto permite conservar los datos históricos de la compra aunque posteriormente cambien el código, nombre o precio del producto.
-
-### Relaciones
-
-```text
-User 1 ─── N Order
-Order 1 ─── N OrderItem
-Product 1 ─── N OrderItem
-```
-
-La relación entre `User` y `Order` utiliza eliminación restringida para evitar que la eliminación de un usuario borre accidentalmente su historial de compras.
-
-La relación entre `Product` y `OrderItem` también utiliza eliminación restringida para proteger la trazabilidad histórica.
-
-Los detalles de una orden se eliminan en cascada únicamente cuando se elimina su orden principal.
-
-### Reglas de negocio
-
-El checkout aplica las siguientes reglas:
 
 - El usuario debe estar autenticado.
-- La compra utiliza el carrito persistente del usuario autenticado.
-- El cliente no envía nuevamente los productos ni las cantidades al confirmar la compra.
-- El carrito debe contener al menos un producto.
+- La compra usa el carrito persistente del usuario. El cliente no vuelve a enviar los productos.
+- El carrito debe tener al menos un producto.
 - Todos los productos del carrito deben existir.
-- El stock se consulta y valida nuevamente durante el checkout.
-- No se permite comprar una cantidad superior al stock disponible.
-- Agregar un producto al carrito no reserva ni disminuye el stock.
-- El stock disminuye únicamente cuando la compra se confirma correctamente.
-- La orden conserva el código, nombre y precio vigentes al momento del checkout.
-- Se aplica un descuento del 10 % cuando el subtotal es estrictamente mayor a `$100`.
-- Un subtotal exactamente igual a `$100` no recibe descuento.
+- El stock se vuelve a consultar y validar durante el checkout.
+- No se permite comprar más de lo disponible.
+- Agregar al carrito no reserva ni disminuye stock.
+- El stock disminuye solo cuando la compra se confirma.
+- La orden guarda el código, nombre y precio vigentes al momento del checkout.
+- Se aplica un descuento del 10 % cuando el subtotal es estrictamente mayor a `$100`. Si es exactamente `$100`, no hay descuento.
 - Después de una compra exitosa, el carrito queda vacío.
-- Cada usuario puede consultar únicamente sus propias órdenes.
-- Una orden inexistente y una orden perteneciente a otro usuario producen la misma respuesta `404 Not Found`.
+- Cada usuario solo puede ver sus propias órdenes.
 
-### Flujo del checkout
+Todas las validaciones de existencia y stock las hago antes de tocar nada. Asi evito modificaciones parciales cuando alguno de los productos no se puede comprar.
 
-El checkout se ejecuta en el siguiente orden:
+### Orden del checkout
 
 ```text
 1. Iniciar la estrategia de ejecución de MySQL.
 2. Iniciar una transacción con aislamiento Serializable.
 3. Obtener el carrito del usuario autenticado.
 4. Rechazar el checkout si el carrito está vacío.
-5. Obtener los productos involucrados con seguimiento de EF Core.
+5. Obtener los productos con seguimiento de EF Core.
 6. Verificar que todos los productos existan.
-7. Validar el stock disponible de todos los productos.
+7. Validar el stock de todos los productos.
 8. Construir el snapshot de los productos.
 9. Crear la orden y sus detalles.
 10. Disminuir el stock.
@@ -1076,23 +603,21 @@ El checkout se ejecuta en el siguiente orden:
 13. Confirmar la transacción.
 ```
 
-Todas las validaciones de existencia y stock se realizan antes de modificar el estado de los productos, la orden o el carrito. Esto evita modificaciones parciales cuando uno de los productos no puede ser comprado.
+### La transacción
 
-### Transacción del checkout
-
-La operación completa se ejecuta mediante la abstracción:
+Toda la operación pasa por la abstracción:
 
 ```text
 IUnitOfWork
 ```
 
-La capa `Application` define el contrato y la capa `Infrastructure` lo implementa mediante:
+La capa `Application` define el contrato y la capa `Infrastructure` lo implementa con:
 
 ```text
 EfUnitOfWork
 ```
 
-La transacción incluye como una sola unidad de trabajo:
+Dentro de la misma unidad de trabajo entra:
 
 ```text
 Creación de Order
@@ -1101,58 +626,54 @@ Creación de Order
 + eliminación de CartItems
 ```
 
-Los repositorios y `EfUnitOfWork` utilizan la misma instancia `Scoped` de `ShoppingCartDbContext`. Por ello, todos los cambios rastreados se confirman mediante una sola llamada a:
+Los repositorios y `EfUnitOfWork` comparten la misma instancia `Scoped` de `ShoppingCartDbContext`, por eso todos los cambios se confirman con una sola llamada:
 
 ```csharp
 await dbContext.SaveChangesAsync(cancellationToken);
 ```
 
-Cuando la operación finaliza correctamente, se confirma mediante:
+Si todo sale bien, confirmo:
 
 ```csharp
 await transaction.CommitAsync(cancellationToken);
 ```
 
-Si ocurre una excepción durante la operación, se ejecuta:
+Si algo revienta, hago rollback:
 
 ```csharp
 await transaction.RollbackAsync(CancellationToken.None);
 ```
 
-El rollback se intenta con `CancellationToken.None` para que una cancelación de la petición no impida revertir la transacción.
-
-Después del rollback se limpia el `ChangeTracker` para evitar conservar entidades modificadas dentro del mismo `DbContext` si la estrategia de ejecución vuelve a intentar la operación.
+Uso `CancellationToken.None` en el rollback para que una cancelación de la petición no impida revertir la transacción. Después del rollback limpio el `ChangeTracker` para no quedarme con entidades modificadas si la estrategia de ejecución reintenta.
 
 ### Nivel de aislamiento
 
-El checkout utiliza:
+El checkout usa:
 
 ```csharp
 IsolationLevel.Serializable
 ```
 
-Este nivel de aislamiento protege las operaciones de stock frente a checkouts concurrentes y reduce el riesgo de que dos compras se confirmen utilizando simultáneamente las mismas unidades disponibles.
-
-El stock se valida dentro de la transacción, utilizando el valor actual almacenado en la base de datos y no el valor que tenía el producto cuando fue agregado al carrito.
+Este nivel protege el stock frente a checkouts concurrentes y reduce el riesgo de que dos compras se confirmen usando las mismas unidades disponibles. El stock se valida dentro de la transacción, con el valor actual en la base de datos y no con el que tenía cuando se agregó al carrito.
 
 ### Estrategia de reintentos de MySQL
 
-La conexión utiliza una estrategia de reintentos para errores transitorios de MySQL.
+La conexión usa una estrategia de reintentos para errores transitorios de MySQL.
 
-Debido a que una transacción iniciada manualmente no puede ejecutarse directamente cuando está activa `MySqlRetryingExecutionStrategy`, `EfUnitOfWork` obtiene la estrategia mediante:
+El problema es que una transacción iniciada a mano no se puede ejecutar directamente cuando está activa `MySqlRetryingExecutionStrategy`. Por eso `EfUnitOfWork` obtiene la estrategia con:
 
 ```csharp
 var executionStrategy =
     dbContext.Database.CreateExecutionStrategy();
 ```
 
-Toda la unidad transaccional se ejecuta dentro de:
+Y toda la unidad transaccional se ejecuta dentro de:
 
 ```csharp
 await executionStrategy.ExecuteAsync(...);
 ```
 
-La estructura es:
+La estructura queda asi:
 
 ```text
 CreateExecutionStrategy
@@ -1168,211 +689,120 @@ CreateExecutionStrategy
         └── CommitAsync
 ```
 
-Esta integración permite combinar correctamente los reintentos de conexión con una transacción explícita.
+De esta forma combino los reintentos de conexión con una transacción explícita.
 
-### Endpoints
+## Manejo de errores
 
-#### Confirmar una compra
+Uso un manejador global de excepciones para no repetir bloques `try/catch` en cada controller.
 
-```http
-POST /api/orders
+Los errores se devuelven con el formato `ProblemDetails` e incluyen un `traceId` que permite relacionar la respuesta con los logs.
+
+Los códigos principales son:
+
+- `400`: datos o argumentos inválidos.
+- `401`: token ausente, inválido o expirado.
+- `403`: el usuario no tiene el rol necesario.
+- `404`: recurso no encontrado.
+- `409`: conflicto con una regla de negocio (carrito vacío, stock insuficiente).
+- `500`: error interno no controlado.
+- `503`: la base de datos no está disponible.
+
+Los detalles técnicos y stack traces quedan en los logs, no se exponen en las respuestas.
+
+## Logging
+
+La API usa el logging de ASP.NET Core con `ILogger`.
+
+El registro está centralizado y guarda info básica de cada petición:
+
+- Método HTTP.
+- Ruta solicitada.
+- Código de respuesta.
+- Tiempo de ejecución.
+
+Las excepciones no controladas las registra el manejador global con un `traceId`.
+
+Por seguridad, no registro cuerpos de peticiones, contraseñas, tokens JWT ni encabezados de autorización.
+
+Para ver los logs de la API en Docker:
+
+```bash
+docker compose -f compose.yaml -f compose.dev.yaml logs -f api
 ```
 
-No requiere body. El servidor utiliza el carrito asociado al usuario autenticado.
+## Pruebas
 
-Respuesta exitosa:
+El proyecto lo he desarrollado con tdd para poder probar cada funcionalidad.
+
+El ciclo que uso es:
+
+1. **Red:** crear una prueba y comprobar que falla.
+2. **Green:** implementar el código mínimo para que pase.
+3. **Refactor:** mejorar el código sin cambiar su comportamiento.
+4. Volver a ejecutar todas las pruebas antes del commit.
+
+Las pruebas unitarias están en:
 
 ```text
-201 Created
-```
+tests/ShoppingCart.UnitTests
+````
 
-Ejemplo:
+### Ejecutar todas las pruebas
 
-```json
-{
-  "id": "50be22fb-421d-4655-a0e5-cd426e90dd1f",
-  "createdAtUtc": "2026-07-15T23:30:00Z",
-  "items": [
-    {
-      "productId": "557da7fc-1478-47ce-83f7-a89a264e1248",
-      "productCode": "PROD-001",
-      "productName": "Mechanical Keyboard",
-      "unitPrice": 50,
-      "quantity": 2,
-      "subtotal": 100
-    },
-    {
-      "productId": "ea640067-535f-434b-b557-b30a69611329",
-      "productCode": "PROD-002",
-      "productName": "Wireless Mouse",
-      "unitPrice": 20,
-      "quantity": 1,
-      "subtotal": 20
-    }
-  ],
-  "subtotal": 120,
-  "discount": 12,
-  "total": 108
-}
-```
+Desde la raíz del backend:
 
-Posibles respuestas:
-
-| Código | Descripción |
-|---|---|
-| `201 Created` | Orden creada correctamente |
-| `400 Bad Request` | Identificador o solicitud inválida |
-| `401 Unauthorized` | Token ausente, inválido o expirado |
-| `404 Not Found` | Alguno de los productos ya no existe |
-| `409 Conflict` | Carrito vacío, stock insuficiente u otro conflicto de negocio |
-| `500 Internal Server Error` | Error inesperado |
-| `503 Service Unavailable` | Base de datos temporalmente no disponible |
-
-#### Obtener historial de compras
-
-```http
-GET /api/orders
-```
-
-Devuelve únicamente las órdenes pertenecientes al usuario autenticado, ordenadas desde la más reciente.
-
-Respuesta exitosa:
-
-```text
-200 OK
-```
-
-Cuando el usuario todavía no tiene órdenes, devuelve:
-
-```json
-[]
-```
-
-#### Obtener una orden por identificador
-
-```http
-GET /api/orders/{id}
-```
-
-Devuelve el detalle de una orden únicamente cuando pertenece al usuario autenticado.
-
-Posibles respuestas:
-
-| Código | Descripción |
-|---|---|
-| `200 OK` | Orden encontrada |
-| `400 Bad Request` | Identificador inválido |
-| `401 Unauthorized` | Token ausente, inválido o expirado |
-| `404 Not Found` | La orden no existe o pertenece a otro usuario |
-
-El servidor devuelve `404 Not Found` tanto para una orden inexistente como para una orden perteneciente a otro usuario. Esto evita revelar la existencia de compras ajenas.
-
-### Validación manual mediante Swagger
-
-Para validar el checkout:
-
-1. Ejecutar `POST /api/auth/login`.
-2. Copiar el valor de `accessToken`.
-3. Autorizar Swagger mediante el esquema Bearer.
-4. Consultar los productos con `GET /api/products`.
-5. Agregar un producto mediante `POST /api/cart/items`.
-6. Confirmar el contenido mediante `GET /api/cart`.
-7. Ejecutar `POST /api/orders`.
-8. Verificar la respuesta `201 Created`.
-9. Consultar nuevamente `GET /api/cart` y confirmar que esté vacío.
-10. Consultar `GET /api/products/{id}` y confirmar que el stock disminuyó.
-11. Consultar `GET /api/orders`.
-12. Consultar `GET /api/orders/{id}`.
-
-Para validar el rechazo de un carrito vacío, ejecutar nuevamente:
-
-```http
-POST /api/orders
-```
-
-El resultado esperado es:
-
-```text
-409 Conflict
-```
-
-Para validar el aislamiento entre usuarios:
-
-1. Crear una orden con el usuario Customer.
-2. Copiar el identificador de la orden.
-3. Iniciar sesión con otro usuario.
-4. Reemplazar el JWT en Swagger.
-5. Consultar la orden creada por el primer usuario.
-
-El resultado esperado es:
-
-```text
-404 Not Found
-```
-
-### Pruebas automatizadas
-
-Las pruebas de dominio verifican:
-
-- Creación de órdenes.
-- Generación de detalles.
-- Snapshot del producto.
-- Cálculo del subtotal por producto.
-- Cálculo del subtotal general.
-- Aplicación del descuento.
-- Cálculo del total.
-- Rechazo de órdenes sin productos.
-
-Las pruebas de `OrderService` verifican:
-
-- Checkout exitoso.
-- Creación de la orden y sus detalles.
-- Disminución del stock.
-- Vaciado del carrito.
-- Rechazo de un carrito vacío.
-- Rechazo por stock insuficiente.
-- Ausencia de modificaciones parciales antes de completar las validaciones.
-- Ejecución de la transacción.
-- Confirmación de operaciones exitosas.
-- Solicitud de rollback ante excepciones.
-- Historial filtrado por usuario.
-- Consulta de una orden propia.
-- Rechazo de órdenes inexistentes o pertenecientes a otro usuario.
-- Ausencia de llamadas directas a `CartRepository.SaveChangesAsync` durante el checkout.
-
-Las pruebas de `OrderController` verifican:
-
-- Obtención del usuario desde los claims del JWT.
-- Respuesta `201 Created` durante el checkout.
-- Generación de la ruta del recurso creado.
-- Respuesta `200 OK` para el historial.
-- Respuesta `200 OK` para el detalle.
-
-Para ejecutar únicamente las pruebas relacionadas con órdenes:
-
-```powershell
-dotnet test tests/ShoppingCart.UnitTests/ShoppingCart.UnitTests.csproj `
-  --filter "FullyQualifiedName~Order"
-```
-
-Para validar toda la solución:
-
-```powershell
-dotnet build ShoppingCart.sln
+```bash
 dotnet test ShoppingCart.sln
 ```
 
-### Estado de la validación transaccional
+### Ejecutar solo las pruebas unitarias
 
-Las pruebas unitarias verifican la orquestación de la transacción mediante una implementación fake de `IUnitOfWork`.
+```bash
+dotnet test tests/ShoppingCart.UnitTests/ShoppingCart.UnitTests.csproj
+```
 
-El flujo real del checkout también fue validado manualmente contra MySQL mediante Docker y Swagger, comprobando que:
+### Ejecutar una prueba o grupo específico
 
-- Se crea la orden.
-- Se crean los detalles.
-- Disminuye el stock.
-- Se vacía el carrito.
-- El historial devuelve la nueva orden.
-- El carrito vacío produce `409 Conflict`.
+Con un filtro por nombre de la clase:
 
-Permanece como mejora adicional una prueba de integración automatizada que provoque deliberadamente un error antes del commit y compruebe directamente en MySQL que no se persistieron cambios parciales.
+```bash
+dotnet test tests/ShoppingCart.UnitTests/ShoppingCart.UnitTests.csproj --filter "FullyQualifiedName~CartTests"
+```
+
+O por nombre de método:
+
+```bash
+dotnet test tests/ShoppingCart.UnitTests/ShoppingCart.UnitTests.csproj --filter "FullyQualifiedName~CalculateTotals"
+```
+
+### Pruebas de integración
+
+Ademas de las unitarias hay pruebas de integración en:
+
+```text
+tests/ShoppingCart.IntegrationTests
+```
+
+Estas levantan un contenedor MySQL real con Testcontainers, asi que se necesita Docker corriendo. La prueba principal valida el rollback del checkout: fuerzo un error antes del commit y compruebo directo en MySQL que no quedó nada a medias (no se creó la orden, no se creó el detalle, el stock no bajó y el carrito sigue igual).
+
+Para ejecutarlas:
+
+```bash
+dotnet test tests/ShoppingCart.IntegrationTests/ShoppingCart.IntegrationTests.csproj
+```
+
+## Resumen de decisiones técnicas
+
+Un resumen rápido de las decisiones más importantes que tomé:
+
+- **Clean Architecture:** separé la solución en Domain, Application, Infrastructure y Api. Las dependencias solo van hacia adentro, asi puedo probar la lógica de negocio sin base de datos y cambiar detalles técnicos sin tocar el dominio.
+- **Aggregate Roots:** `Cart` y `Order` controlan a sus hijos. Los `CartItem` solo se modifican a través del carrito, para que las reglas siempre se cumplan.
+- **Lógica de negocio en el dominio:** el cálculo de totales y el descuento del 10 % viven en `Cart.CalculateTotals()` y `Order.Create()`, no en los controllers ni en los servicios.
+- **Snapshot de precios:** los `OrderItem` guardan código, nombre y precio del momento de la compra, asi el historial no cambia si el producto cambia después.
+- **Transacción Serializable:** el checkout va dentro de una transacción con `IsolationLevel.Serializable` a través de `IUnitOfWork`, para que dos compras al mismo tiempo no consuman el mismo stock.
+- **Doble validación de stock:** valido al agregar al carrito (cantidad acumulada) y otra vez dentro de la transacción del checkout, porque el stock pudo cambiar entre esos dos momentos.
+- **Borrado lógico:** los productos se desactivan con `IsActive` en vez de borrarse, para no romper el historial de compras.
+- **DTOs:** nunca expongo las entidades directamente. Todo entra y sale con records de la capa Application.
+- **Manejo centralizado de errores:** un `GlobalExceptionHandler` convierte las excepciones de negocio en `ProblemDetails` con el código HTTP correcto y un `traceId`.
+- **Configuración segura:** las cadenas de conexión y la clave JWT no van al repositorio. En local uso User Secrets y en Docker variables de entorno con `.env`.
+- **TDD:** desarrollé con el ciclo Red-Green-Refactor. Las unitarias usan fakes y las de integración validan la transacción contra MySQL real.
