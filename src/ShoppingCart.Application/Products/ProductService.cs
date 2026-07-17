@@ -156,7 +156,8 @@ public class ProductService : IProductService
             product.Name,
             product.Category,
             product.Price,
-            product.Stock
+            product.Stock,
+            product.IsActive
         );
     }
 }

@@ -19,7 +19,8 @@ public sealed class AdminProductsControllerTests
             "Gaming Monitor",
             "Technology",
             300m,
-            15
+            15,
+            true
         );
 
         var service = new FakeProductService
@@ -84,7 +85,8 @@ public sealed class AdminProductsControllerTests
             "Updated Mechanical Keyboard",
             "Computer Accessories",
             90m,
-            15
+            15,
+            true
         );
 
         var service = new FakeProductService

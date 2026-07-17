@@ -6,5 +6,6 @@ public record ProductResponse(
     string Name,
     string Category,
     decimal Price,
-    int Stock
+    int Stock,
+    bool IsActive
 );
