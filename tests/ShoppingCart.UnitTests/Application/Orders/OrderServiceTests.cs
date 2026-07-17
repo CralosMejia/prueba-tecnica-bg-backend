@@ -516,6 +516,48 @@ public sealed class OrderServiceTests
                 IReadOnlyList<Product>
             >(matchingProducts);
         }
+        public Task<Product?> GetByIdForUpdateAsync(
+            Guid id,
+            CancellationToken cancellationToken = default)
+        {
+            var product = _products.FirstOrDefault(
+                currentProduct =>
+                    currentProduct.Id == id
+            );
+
+            return Task.FromResult(product);
+        }
+        public Task<bool> ExistsByCodeAsync(
+            string code,
+            Guid? excludeProductId = null,
+            CancellationToken cancellationToken = default)
+        {
+            var exists = _products.Any(product =>
+                string.Equals(
+                    product.Code,
+                    code,
+                    StringComparison.OrdinalIgnoreCase
+                ) &&
+                product.Id != excludeProductId
+            );
+
+            return Task.FromResult(exists);
+        }
+
+        public Task<Product> AddAsync(
+            Product product,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException(
+                "Order tests do not support adding products."
+            );
+        }
+        
+        public Task SaveChangesAsync(
+            CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class FakeOrderRepository

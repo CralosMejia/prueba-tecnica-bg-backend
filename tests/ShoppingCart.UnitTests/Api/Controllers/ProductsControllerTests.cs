@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using ShoppingCart.Api.Controllers;
 using ShoppingCart.Application.Products;
+using ShoppingCart.Domain.Products;
 
 namespace ShoppingCart.UnitTests.Api.Controllers;
 
@@ -49,6 +50,34 @@ public class ProductsControllerTests
             CancellationToken cancellationToken = default)
         {
             return Task.FromResult<ProductResponse?>(null);
+        }
+
+        public Task<ProductResponse> CreateAsync(
+            CreateProductRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException(
+                "This fake is only used for public product controller tests."
+            );
+        }
+
+        public Task<ProductResponse> UpdateAsync(
+            Guid id,
+            UpdateProductRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException(
+                "This fake is only used for public product controller tests."
+            );
+        }
+
+        public Task ToggleActivityStatusAsync(
+            Guid id,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException(
+                "This fake is only used for public product controller tests."
+            );
         }
     }
 }

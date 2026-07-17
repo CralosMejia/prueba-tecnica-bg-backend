@@ -18,4 +18,22 @@ public interface IProductRepository
         IReadOnlyCollection<Guid> ids,
         CancellationToken cancellationToken = default
     );
+
+    Task<Product?> GetByIdForUpdateAsync(
+        Guid id,
+        CancellationToken cancellationToken = default
+    );
+
+    Task<bool> ExistsByCodeAsync(
+        string code,
+        Guid? excludeProductId = null,
+        CancellationToken cancellationToken = default
+    );
+
+    Task<Product> AddAsync(
+        Product product,
+        CancellationToken cancellationToken = default
+    );
+
+    Task SaveChangesAsync(CancellationToken cancellationToken = default);
 }

@@ -336,41 +336,106 @@ public sealed class CartServiceTests
         }
     }
 
-    private sealed class FakeProductRepository(
-        params Product[] products)
-        : IProductRepository
-    {
-        private readonly IReadOnlyList<Product> _products =
-            products;
+private sealed class FakeProductRepository(
+    params Product[] products)
+    : IProductRepository
+{
+    private readonly List<Product> _products =
+        products.ToList();
 
-        public Task<IReadOnlyList<Product>> GetAllAsync(
-            string? search,
-            CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult(_products);
-        }
-
-        public Task<Product?> GetByIdAsync(
-            Guid id,
-            CancellationToken cancellationToken = default)
-        {
-            var product = _products.FirstOrDefault(
-                currentProduct => currentProduct.Id == id
-            );
-
-            return Task.FromResult(product);
-        }
-        public Task<IReadOnlyList<Product>> GetByIdsForUpdateAsync(
-        IReadOnlyCollection<Guid> ids,
+    public Task<IReadOnlyList<Product>> GetAllAsync(
+        string? search,
         CancellationToken cancellationToken = default)
-        {
-            var matchingProducts = _products
-                .Where(product => ids.Contains(product.Id))
+    {
+        IReadOnlyList<Product> result =
+            _products
+                .Where(product => product.IsActive)
                 .ToList();
 
-            return Task.FromResult<IReadOnlyList<Product>>(
-                matchingProducts
-            );
-        }
+        return Task.FromResult(result);
     }
+
+    public Task<Product?> GetByIdAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        var product = _products.FirstOrDefault(
+            currentProduct =>
+                currentProduct.Id == id &&
+                currentProduct.IsActive
+        );
+
+        return Task.FromResult(product);
+    }
+
+    public Task<Product?> GetByIdForUpdateAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        var product = _products.FirstOrDefault(
+            currentProduct =>
+                currentProduct.Id == id
+        );
+
+        return Task.FromResult(product);
+    }
+
+    public Task<IReadOnlyList<Product>>
+        GetByIdsForUpdateAsync(
+            IReadOnlyCollection<Guid> ids,
+            CancellationToken cancellationToken = default)
+    {
+        IReadOnlyList<Product> matchingProducts =
+            _products
+                .Where(product =>
+                    ids.Contains(product.Id)
+                )
+                .ToList();
+
+        return Task.FromResult(
+            matchingProducts
+        );
+    }
+
+    public Task<bool> ExistsByCodeAsync(
+        string code,
+        Guid? excludeProductId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var exists = _products.Any(product =>
+            string.Equals(
+                product.Code,
+                code,
+                StringComparison.OrdinalIgnoreCase
+            ) &&
+            product.Id != excludeProductId
+        );
+
+        return Task.FromResult(exists);
+    }
+
+    public Task<Product> AddAsync(
+        Product product,
+        CancellationToken cancellationToken = default)
+    {
+        /*
+         * CartService nunca crea productos.
+         * Este método existe únicamente para cumplir
+         * el contrato de IProductRepository.
+         */
+        throw new NotSupportedException(
+            "Cart tests do not support adding products."
+        );
+    }
+
+    public Task SaveChangesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        /*
+         * CartService guarda mediante ICartRepository,
+         * no mediante IProductRepository.
+         */
+        return Task.CompletedTask;
+    }
+}
 }

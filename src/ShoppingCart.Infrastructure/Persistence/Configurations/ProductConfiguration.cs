@@ -15,7 +15,7 @@ public sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
         builder.Property(p => p.Category).IsRequired().HasMaxLength(50);
         builder.Property(p => p.Price).IsRequired().HasColumnType("decimal(18,2)");
         builder.Property(p => p.Stock).IsRequired();
-
+        builder.Property(p => p.IsActive).IsRequired().HasDefaultValue(true);
 
         builder.HasData(
             new
@@ -25,7 +25,8 @@ public sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
                 Name = "Mechanical Keyboard",
                 Category = "Technology",
                 Price = 80m,
-                Stock = 15
+                Stock = 15,
+                IsActive = true
             },
             new
             {
@@ -34,7 +35,8 @@ public sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
                 Name = "Wireless Mouse",
                 Category = "Technology",
                 Price = 35m,
-                Stock = 25
+                Stock = 25,
+                IsActive = true
             },
             new
             {
@@ -43,7 +45,8 @@ public sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
                 Name = "Monitor 24 Inches",
                 Category = "Monitors",
                 Price = 180m,
-                Stock = 8
+                Stock = 8,
+                IsActive = true
             },
             new
             {
@@ -52,7 +55,8 @@ public sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
                 Name = "USB Webcam",
                 Category = "Accessories",
                 Price = 55m,
-                Stock = 12
+                Stock = 12,
+                IsActive = true
             },
             new
             {
@@ -61,7 +65,8 @@ public sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
                 Name = "Laptop",
                 Category = "Computers",
                 Price = 850m,
-                Stock = 5
+                Stock = 5,
+                IsActive = true
             },
             new
             {
@@ -70,7 +75,8 @@ public sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
                 Name = "Gaming Headset",
                 Category = "Audio",
                 Price = 95m,
-                Stock = 0
+                Stock = 0,
+                IsActive = true
             }
         );
     }

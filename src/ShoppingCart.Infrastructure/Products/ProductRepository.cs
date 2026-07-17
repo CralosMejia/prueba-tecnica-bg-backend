@@ -20,6 +20,7 @@ public class ProductRepository : IProductRepository
     {
         var query = _dbContext.Products
             .AsNoTracking()
+            .Where(product => product.IsActive)
             .AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(search))
@@ -45,7 +46,7 @@ public class ProductRepository : IProductRepository
         return await _dbContext.Products
             .AsNoTracking()
             .FirstOrDefaultAsync(
-                product => product.Id == id,
+                product => product.Id == id && product.IsActive,
                 cancellationToken
             );
     }
@@ -67,5 +68,50 @@ public class ProductRepository : IProductRepository
         return await _dbContext.Products
             .Where(product => productIds.Contains(product.Id))
             .ToListAsync(cancellationToken);
+    }
+
+    public Task<Product?> GetByIdForUpdateAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        return _dbContext.Products
+            .FirstOrDefaultAsync(
+                product => product.Id == id,
+                cancellationToken
+            );
+    }
+
+    public Task<bool> ExistsByCodeAsync(
+        string code,
+        Guid? excludeProductId = null,
+        CancellationToken cancellationToken = default)
+    {
+        return _dbContext.Products.AnyAsync(
+            product =>
+                product.Code == code &&
+                (!excludeProductId.HasValue ||
+                product.Id != excludeProductId.Value),
+            cancellationToken
+        );
+    }
+
+    public async Task<Product> AddAsync(
+        Product product,
+        CancellationToken cancellationToken = default)
+    {
+        await _dbContext.Products.AddAsync(
+            product,
+            cancellationToken
+        );
+
+        return product;
+    }
+
+    public async Task SaveChangesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await _dbContext.SaveChangesAsync(
+            cancellationToken
+        );
     }
 }

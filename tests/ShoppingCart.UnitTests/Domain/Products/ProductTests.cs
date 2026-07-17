@@ -6,13 +6,13 @@ namespace ShoppingCart.UnitTests.Domain
     {
 
 
-        private static Product CreateProduct(int stock = 10)
+        private static Product CreateProduct(string name = "Mechanical Keyboard", string category = "Technology", decimal price = 50m, int stock = 10)
         {
             return new Product(
                 code: "PRD-001",
-                name: "Mechanical Keyboard",
-                category: "Technology",
-                price: 50m,
+                name: name,
+                category: category,
+                price: price,
                 stock: stock
             );
         }
@@ -113,5 +113,132 @@ namespace ShoppingCart.UnitTests.Domain
 
             Assert.Equal(0, product.Stock);
         }
+
+        [Fact]
+        public void UpdateProduct_WhenValidParameters_UpdatesProductProperties()
+        {
+            // Arrange
+            var product = CreateProduct(stock: 10);
+            var newName = "Updated Keyboard";
+            var newCategory = "Updated Technology";
+            var newPrice = 60m;
+            var newStock = 15;
+
+            // Act
+            product.UpdateProduct(newName, newCategory, newPrice, newStock);
+
+            // Assert
+            Assert.Equal(newName, product.Name);
+            Assert.Equal(newCategory, product.Category);
+            Assert.Equal(newPrice, product.Price);
+            Assert.Equal(newStock, product.Stock);
+        }
+
+        [Fact]
+        public void UpdateProduct_WhenNameIsEmpty_ThrowsArgumentException()
+        {
+            // Arrange
+            var product = CreateProduct(stock: 10);
+            var newName = "";
+            var newCategory = "Updated Technology";
+            var newPrice = 60m;
+            var newStock = 15;
+
+            // Act
+            var action = () => product.UpdateProduct(newName, newCategory, newPrice, newStock);
+
+            // Assert
+            var exception = Assert.Throws<ArgumentException>(action);
+            Assert.Equal("name", exception.ParamName);
+        }
+
+        [Fact]
+        public void UpdateProduct_WhenCategoryIsEmpty_ThrowsArgumentException()
+        {
+            // Arrange
+            var product = CreateProduct(stock: 10);
+            var newName = "Updated Keyboard";
+            var newCategory = "";
+            var newPrice = 60m;
+            var newStock = 15;
+
+            // Act
+            var action = () => product.UpdateProduct(newName, newCategory, newPrice, newStock);
+
+            // Assert
+            var exception = Assert.Throws<ArgumentException>(action);
+            Assert.Equal("category", exception.ParamName);
+        }
+
+        [Fact]
+        public void UpdateProduct_WhenPriceIsNegative_ThrowsArgumentOutOfRangeException()
+        {
+            // Arrange
+            var product = CreateProduct(stock: 10);
+            var newName = "Updated Keyboard";
+            var newCategory = "Updated Technology";
+            var newPrice = -60m;
+            var newStock = 15;
+
+            // Act
+            var action = () => product.UpdateProduct(newName, newCategory, newPrice, newStock);
+
+            // Assert
+            var exception = Assert.Throws<ArgumentOutOfRangeException>(action);
+            Assert.Equal("price", exception.ParamName);
+        }
+
+        [Fact]
+        public void UpdateProduct_WhenStockIsNegative_ThrowsArgumentOutOfRangeException()
+        {
+            // Arrange
+            var product = CreateProduct(stock: 10);
+            var newName = "Updated Keyboard";
+            var newCategory = "Updated Technology";
+            var newPrice = 60m;
+            var newStock = -15;
+
+            // Act
+            var action = () => product.UpdateProduct(newName, newCategory, newPrice, newStock);
+
+            // Assert
+            var exception = Assert.Throws<ArgumentOutOfRangeException>(action);
+            Assert.Equal("stock", exception.ParamName);
+        }
+
+        [Fact]
+        public void ChangeActivityStatus_TogglesIsActive()
+        {
+            // Arrange
+            var product = CreateProduct();
+
+            // Act
+            product.ChangeActivityStatus();
+
+            // Assert
+            Assert.False(product.IsActive);
+        }
+        [Fact]
+        public void ChangeActivityStatus_CalledTwice_RestoresOriginalStatus()
+        {
+            var product = CreateProduct();
+
+            product.ChangeActivityStatus();
+            Assert.False(product.IsActive);
+
+            product.ChangeActivityStatus();
+            Assert.True(product.IsActive);
+        }
+
+        [Fact]
+        public void NewProduct_isactiveByDefault()
+        {
+            // Arrange
+            var product = CreateProduct();
+
+            // Act & Assert
+            Assert.True(product.IsActive);
+        }
+
     }
 }

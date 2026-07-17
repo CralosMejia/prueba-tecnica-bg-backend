@@ -25,5 +25,11 @@
     <ProjectReference Include="..\..\src\ShoppingCart.Application\ShoppingCart.Application.csproj" />
     <ProjectReference Include="..\..\src\ShoppingCart.Api\ShoppingCart.Api.csproj" />
   </ItemGroup>
+  <!-- Exclusión temporal de capas que aún no quieres probar -->
+  <ItemGroup>
+    <!-- <Compile Remove="Application\**\*.cs" /> -->
+    <!-- <Compile Remove="Api\**\*.cs" /> -->
+    <!-- <Compile Remove="IntegrationTests\**\*.cs" /> -->
+  </ItemGroup>
 
 </Project>
