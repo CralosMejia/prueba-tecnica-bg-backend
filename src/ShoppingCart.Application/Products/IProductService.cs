@@ -7,6 +7,12 @@ public interface IProductService
         CancellationToken cancellationToken = default
     );
 
+    Task<IReadOnlyList<ProductResponse>> GetAllForAdministrationAsync(
+        string? search,
+        CancellationToken cancellationToken = default
+    );
+
+
     Task<ProductResponse?> GetByIdAsync(
         Guid id,
         CancellationToken cancellationToken = default

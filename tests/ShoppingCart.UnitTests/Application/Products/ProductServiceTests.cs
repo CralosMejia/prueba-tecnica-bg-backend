@@ -439,6 +439,60 @@ public sealed class ProductServiceTests
         Assert.Equal(0, repository.SaveChangesCalls);
     }
 
+    [Fact]
+    public async Task GetAllForAdministrationAsync_ReturnsActiveAndInactiveProducts()
+    {
+        // Arrange
+        var activeProduct = CreateProduct(
+            code: "PRD-001",
+            name: "Mechanical Keyboard",
+            price: 80m,
+            stock: 10
+        );
+
+        var inactiveProduct = CreateProduct(
+            code: "PRD-002",
+            name: "Wireless Mouse",
+            price: 35m,
+            stock: 20
+        );
+
+        inactiveProduct.ChangeActivityStatus();
+
+        var repository =
+            new FakeProductRepository(
+                activeProduct,
+                inactiveProduct
+            );
+
+        var service =
+            new ProductService(repository);
+
+        // Act
+        var result =
+            await service.GetAllForAdministrationAsync(
+                search: null,
+                CancellationToken.None
+            );
+
+        // Assert
+        Assert.Equal(2, result.Count);
+
+        Assert.Contains(
+            result,
+            product =>
+                product.Id == activeProduct.Id &&
+                product.IsActive
+        );
+
+        Assert.Contains(
+            result,
+            product =>
+                product.Id == inactiveProduct.Id &&
+                !product.IsActive
+        );
+    }
+
     private static Product CreateProduct(
         string code,
         string name,
@@ -503,6 +557,36 @@ public sealed class ProductServiceTests
 
             IReadOnlyList<Product> result =
                 query.ToList();
+
+            return Task.FromResult(result);
+        }
+
+        public Task<IReadOnlyList<Product>>
+            GetAllForAdministrationAsync(
+                string? search,
+                CancellationToken cancellationToken = default)
+        {
+            IEnumerable<Product> query = _products;
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                query = query.Where(product =>
+                    product.Code.Contains(
+                        search,
+                        StringComparison.OrdinalIgnoreCase
+                    ) ||
+                    product.Name.Contains(
+                        search,
+                        StringComparison.OrdinalIgnoreCase
+                    ) ||
+                    product.Category.Contains(
+                        search,
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                );
+            }
+
+            IReadOnlyList<Product> result = query.ToList();
 
             return Task.FromResult(result);
         }

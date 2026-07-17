@@ -489,6 +489,16 @@ public sealed class OrderServiceTests
             return Task.FromResult(_products);
         }
 
+        public Task<IReadOnlyList<Product>>
+        GetAllForAdministrationAsync(
+            string? search,
+            CancellationToken cancellationToken = default)
+        {
+            IReadOnlyList<Product> result = _products.ToList();
+
+            return Task.FromResult(result);
+        }
+
         public Task<Product?> GetByIdAsync(
             Guid id,
             CancellationToken cancellationToken = default)

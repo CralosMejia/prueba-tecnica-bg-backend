@@ -45,6 +45,16 @@ public class ProductsControllerTests
             return Task.FromResult(products);
         }
 
+        public Task<IReadOnlyList<ProductResponse>>
+        GetAllForAdministrationAsync(
+            string? search,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException(
+                "This test does not use administrative product listing."
+            );
+        }
+
         public Task<ProductResponse?> GetByIdAsync(
             Guid id,
             CancellationToken cancellationToken = default)

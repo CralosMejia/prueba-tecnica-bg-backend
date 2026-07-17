@@ -14,6 +14,30 @@ public class ProductRepository : IProductRepository
         _dbContext = dbContext;
     }
 
+    public async Task<IReadOnlyList<Product>> GetAllForAdministrationAsync(
+        string? search,
+        CancellationToken cancellationToken = default)
+    {
+        var query = _dbContext.Products
+            .AsNoTracking()
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var searchTerm = search.Trim();
+
+            query = query.Where(product =>
+                product.Name.Contains(searchTerm) ||
+                product.Code.Contains(searchTerm) ||
+                product.Category.Contains(searchTerm)
+            );
+        }
+
+        return await query
+            .OrderBy(product => product.Name)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<Product>> GetAllAsync(
         string? search,
         CancellationToken cancellationToken = default)

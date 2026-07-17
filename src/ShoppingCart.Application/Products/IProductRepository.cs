@@ -9,6 +9,11 @@ public interface IProductRepository
         CancellationToken cancellationToken = default
     );
 
+    Task<IReadOnlyList<Product>> GetAllForAdministrationAsync(
+        string? search,
+        CancellationToken cancellationToken = default
+    );
+
     Task<Product?> GetByIdAsync(
         Guid id,
         CancellationToken cancellationToken = default

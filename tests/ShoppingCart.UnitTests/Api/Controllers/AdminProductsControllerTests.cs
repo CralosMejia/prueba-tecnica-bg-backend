@@ -68,7 +68,6 @@ public sealed class AdminProductsControllerTests
             );
 
         Assert.Equal(expectedResponse, response);
-
         Assert.Equal(1, service.CreateCalls);
         Assert.Same(request, service.LastCreateRequest);
     }
@@ -126,7 +125,6 @@ public sealed class AdminProductsControllerTests
             );
 
         Assert.Equal(expectedResponse, response);
-
         Assert.Equal(1, service.UpdateCalls);
         Assert.Equal(productId, service.LastUpdatedProductId);
         Assert.Same(request, service.LastUpdateRequest);
@@ -151,7 +149,6 @@ public sealed class AdminProductsControllerTests
 
         // Assert
         Assert.IsType<NoContentResult>(result);
-
         Assert.Equal(1, service.ToggleStatusCalls);
         Assert.Equal(
             productId,
@@ -159,9 +156,84 @@ public sealed class AdminProductsControllerTests
         );
     }
 
+    [Fact]
+    public async Task GetAll_Returns200WithActiveAndInactiveProducts()
+    {
+        // Arrange
+        IReadOnlyList<ProductResponse> expectedProducts =
+        [
+            new(
+                Guid.NewGuid(),
+                "PRD-001",
+                "Mechanical Keyboard",
+                "Technology",
+                80m,
+                10,
+                true
+            ),
+            new(
+                Guid.NewGuid(),
+                "PRD-002",
+                "Wireless Mouse",
+                "Technology",
+                35m,
+                20,
+                false
+            )
+        ];
+
+        var service = new FakeProductService
+        {
+            AdministrativeProductsResponse =
+                expectedProducts
+        };
+
+        var controller =
+            new AdminProductsController(service);
+
+        // Act
+        var result = await controller.GetAll(
+            search: null,
+            CancellationToken.None
+        );
+
+        // Assert
+        var okResult =
+            Assert.IsType<OkObjectResult>(
+                result.Result
+            );
+
+        var products =
+            Assert.IsAssignableFrom<
+                IReadOnlyList<ProductResponse>
+            >(okResult.Value);
+
+        Assert.Equal(2, products.Count);
+        Assert.Contains(
+            products,
+            product => product.IsActive
+        );
+        Assert.Contains(
+            products,
+            product => !product.IsActive
+        );
+
+        Assert.Equal(
+            1,
+            service.AdministrativeGetAllCalls
+        );
+    }
+
     private sealed class FakeProductService
         : IProductService
     {
+        public IReadOnlyList<ProductResponse>?
+            AdministrativeProductsResponse
+        {
+            get;
+            init;
+        }
+
         public ProductResponse? CreateResponse
         {
             get;
@@ -174,11 +246,29 @@ public sealed class AdminProductsControllerTests
             init;
         }
 
-        public int CreateCalls { get; private set; }
+        public int AdministrativeGetAllCalls
+        {
+            get;
+            private set;
+        }
 
-        public int UpdateCalls { get; private set; }
+        public int CreateCalls
+        {
+            get;
+            private set;
+        }
 
-        public int ToggleStatusCalls { get; private set; }
+        public int UpdateCalls
+        {
+            get;
+            private set;
+        }
+
+        public int ToggleStatusCalls
+        {
+            get;
+            private set;
+        }
 
         public CreateProductRequest? LastCreateRequest
         {
@@ -251,8 +341,22 @@ public sealed class AdminProductsControllerTests
             CancellationToken cancellationToken = default)
         {
             throw new NotSupportedException(
-                "Administrative controller tests do not use product queries."
+                "Administrative controller tests do not use public product queries."
             );
+        }
+
+        public Task<IReadOnlyList<ProductResponse>>
+            GetAllForAdministrationAsync(
+                string? search,
+                CancellationToken cancellationToken = default)
+        {
+            AdministrativeGetAllCalls++;
+
+            IReadOnlyList<ProductResponse> result =
+                AdministrativeProductsResponse
+                ?? [];
+
+            return Task.FromResult(result);
         }
 
         public Task<ProductResponse?> GetByIdAsync(
@@ -260,7 +364,7 @@ public sealed class AdminProductsControllerTests
             CancellationToken cancellationToken = default)
         {
             throw new NotSupportedException(
-                "Administrative controller tests do not use product queries."
+                "Administrative controller tests do not use product detail queries."
             );
         }
     }

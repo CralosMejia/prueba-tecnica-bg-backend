@@ -355,6 +355,16 @@ private sealed class FakeProductRepository(
         return Task.FromResult(result);
     }
 
+    public Task<IReadOnlyList<Product>>
+    GetAllForAdministrationAsync(
+        string? search,
+        CancellationToken cancellationToken = default)
+    {
+        IReadOnlyList<Product> result = _products.ToList();
+
+        return Task.FromResult(result);
+    }
+
     public Task<Product?> GetByIdAsync(
         Guid id,
         CancellationToken cancellationToken = default)

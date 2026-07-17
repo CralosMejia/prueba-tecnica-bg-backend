@@ -134,6 +134,20 @@ public class ProductService : IProductService
             .ToList();
     }
 
+    public async Task<IReadOnlyList<ProductResponse>> GetAllForAdministrationAsync(
+        string? search,
+        CancellationToken cancellationToken = default)
+    {
+        var products = await _productRepository.GetAllForAdministrationAsync(
+            search,
+            cancellationToken
+        );
+
+        return products
+            .Select(MapToResponse)
+            .ToList();
+    }
+
     public async Task<ProductResponse?> GetByIdAsync(
         Guid id,
         CancellationToken cancellationToken = default)
